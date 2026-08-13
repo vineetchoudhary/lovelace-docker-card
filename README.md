@@ -8,6 +8,7 @@ A simple Lovelace card that lets you view and control your Docker containers fro
 
 - Compact overview of your Docker host
 - Auto-updating container list with live state badges and control actions
+- Per-container CPU and memory usage read from any sensor you point at it
 - Theme-aware styling with configurable running vs not-running accent colors
 - Works out-of-the-box with entities provided by the Portainer integration; also supports any toggle-friendly domains (`switch`, `input_boolean`, `light`, etc.)
 - Optional tap/hold actions per container row for quick navigation, service calls, or external links
@@ -68,6 +69,8 @@ containers:
     status_entity: sensor.docker_homeassistant_status
     control_entity: switch.docker_homeassistant
     restart_entity: switch.docker_restart_homeassistant
+    cpu_entity: sensor.docker_homeassistant_cpu
+    memory_entity: sensor.docker_homeassistant_memory
     tap_action:
       action: more-info
       entity: binary_sensor.docker_homeassistant_status
@@ -78,6 +81,8 @@ containers:
     status_entity: sensor.docker_nodered_status
     control_entity: switch.docker_nodered
     restart_entity: button.docker_restart_nodered
+    cpu_entity: sensor.docker_nodered_cpu
+    memory_entity: sensor.docker_nodered_memory
     tap_action:
       action: toggle
       entity: switch.docker_nodered
@@ -91,7 +96,7 @@ containers:
 ## Quick Start (Portainer integration)
 
 1. Install the **Portainer** integration and complete its setup wizard (Settings → Devices & Services → + → Portainer).
-2. Confirm entities such as `sensor.docker_containers_running`, `switch.docker_<container>`, and `button.docker_restart_<container>` exist.
+2. Confirm entities such as `sensor.docker_containers_running`, `switch.docker_<container>`, `button.docker_restart_<container>`, and the per-container CPU/memory sensors exist.
 3. Add the YAML snippet above to your dashboard (Edit Dashboard → Add Card → Manual → paste YAML).
 4. Optionally tweak `running_color` or `not_running_color` to match your theme.
 
@@ -99,45 +104,89 @@ You now have an interactive Docker control panel that stays in sync with Portain
 
 ### Supported options
 
+#### Card
+
 | Option | Required | Description |
 | --- | --- | --- |
-| `title` | No | Override the card header |
+| `title` | No | Override the card header (defaults to “Docker Card”) |
 | `containers_expanded` | No | Set `true` to expand or `false` (default) to collapse the container list on initial load |
-| `docker_overview` | No | Mapping of high-level stats to entity IDs |
-| `docker_overview.container_count` | No | Total number of containers |
-| `docker_overview.containers_running` | No | Number of running containers |
-| `docker_overview.containers_stopped` | No | Number of stopped containers |
-| `docker_overview.docker_version` | No | Docker version |
-| `docker_overview.image_count` | No | Number of Docker images |
-| `docker_overview.operating_system` | No | Operating system |
-| `docker_overview.operating_system_version` | No | Operating system version |
+| `docker_overview` | No | Mapping of high-level stats to entity IDs (see below) |
 | `running_color` | No | Global border/accent color for running containers and status pill |
 | `not_running_color` | No | Global border/accent color for containers that are not running |
-| `containers` | **Yes** | Array (or single object) describing each container |
-| `containers[].name` | No | Friendly label (defaults to entity friendly name) |
-| `containers[].status_entity` | Preferably | Entity whose state represents the container status |
-| `containers[].control_entity` | Conditional | Entity that supports `turn_on`/`turn_off` (e.g. `switch`, `input_boolean`, `light`) to start/stop the container |
-| `containers[].control_domain` | No | Override domain name when the entity uses a custom namespace |
-| `containers[].restart_entity` | No | Entity to trigger a restart (`button`, `switch`, `script`, etc.) |
-| `containers[].restart_domain` | No | Override domain for the restart entity |
-| `containers[].switch_entity` | Legacy | Backwards compatible alias for `control_entity` |
-| `containers[].running_color` | No | Per-container override for the running border/accent color |
-| `containers[].not_running_color` | No | Per-container override for the not-running border/accent color |
-| `containers[].running_states` | No | Custom list of states that count as “running” |
-| `containers[].stopped_states` | No | Custom list of states that count as “stopped” |
-| `containers[].tap_action` | No | Action to run when the row is tapped/clicked (standard Lovelace action object) |
-| `containers[].hold_action` | No | Action to run on hold/long-press (supports the same syntax as `tap_action`) |
-| `containers[].hold_delay` | No | Hold detection delay in milliseconds (defaults to 500) |
+| `running_states` | No | Global list of states that count as “running”. Defaults to `running, on, started, up`. Matching is case-insensitive |
+| `stopped_states` | No | Global list of states that count as “stopped”. Defaults to `stopped, off, exited, down, inactive` |
+| `stopped_color` | Legacy | Backwards compatible alias for `not_running_color` |
+| `containers` | **Yes** | List of containers, or a single container object (see below) |
 
-> Tip: `binary_sensor` entities are read-only. Use a `switch`, `input_boolean`, `light`, or similar domain for `control_entity` so the card can call `turn_on`/`turn_off`.
+#### `docker_overview`
+
+Each key is optional. A pill is only rendered when its entity exists and has a usable state, so an
+unavailable sensor disappears rather than showing a dash.
+
+| Option | Shown as | Description |
+| --- | --- | --- |
+| `status` | Header pill | Overall daemon state. `on`/`running`/`online`/`ok`/`ready` reads **Online**, `off`/`offline`/`error`/`problem`/`down` reads **Offline**, anything else is treated as idle |
+| `container_count` | Running / Total | Total number of containers |
+| `containers_running` | Running / Total | Number of running containers. The pill turns the not-running color when running ≠ total |
+| `containers_stopped` | Running / Total | Number of stopped containers. Used to derive the total when `container_count` is not configured |
+| `image_count` | Images | Number of Docker images |
+| `docker_version` | Docker | Docker version |
+| `operating_system` | OS | Host operating system |
+| `operating_system_version` | OS | Host OS version, joined to the name as `name · version` |
+
+#### `containers[]`
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `name` | No | Friendly label (defaults to the status entity's friendly name) |
+| `status_entity` | Preferably | Entity whose state represents the container status |
+| `control_entity` | Conditional | Entity that supports `turn_on`/`turn_off` (`switch`, `input_boolean`, `light`, `fan`, `script`, `automation`) to start/stop the container |
+| `control_domain` | No | Override domain name when the entity uses a custom namespace |
+| `start_service` / `stop_service` | Conditional | Service to call instead of `control_entity`, as `domain.service` or an object with `domain`, `service` and optional `data`/`entity_id`/`target` |
+| `restart_entity` | No | Entity to trigger a restart. `button` → `press`, `script`/`switch` → `turn_on`, `automation` → `trigger` |
+| `restart_domain` | No | Override domain for the restart entity |
+| `restart_service` | No | Service to call for a restart instead of `restart_entity`, same syntax as `start_service` |
+| `cpu_entity` | No | Sensor holding the container's CPU usage — see [CPU and memory usage](#cpu-and-memory-usage) |
+| `memory_entity` | No | Sensor holding the container's memory usage |
+| `running_color` | No | Per-container override for the running border/accent color |
+| `not_running_color` | No | Per-container override for the not-running border/accent color |
+| `running_states` | No | Custom list of states that count as “running” for this container |
+| `stopped_states` | No | Custom list of states that count as “stopped” for this container |
+| `tap_action` | No | Action to run when the row is tapped/clicked (standard Lovelace action object) |
+| `hold_action` | No | Action to run on hold/long-press (supports the same syntax as `tap_action`) |
+| `hold_delay` | No | Hold detection delay in milliseconds (defaults to 500) |
+| `id` | No | Stable identifier for the row. Only needed if two containers share the same name and entities |
+| `switch_entity` | Legacy | Backwards compatible alias for `control_entity` |
+| `switch_domain` | Legacy | Backwards compatible alias for `control_domain` |
+| `stopped_color` | Legacy | Backwards compatible alias for `not_running_color` |
+
+Supported `tap_action` / `hold_action` values are `more-info` (default), `toggle`, `navigate`, `url`, `call-service`, `fire-dom-event` and `none`. `more-info` defaults to the container's `status_entity`; `toggle` defaults to its `control_entity`.
+
+> Tip: `binary_sensor` and `sensor` entities are read-only. Use a `switch`, `input_boolean`, `light`, or similar domain for `control_entity` so the card can call `turn_on`/`turn_off` — otherwise the row's switch stays disabled.
 
 Color settings fall back to Home Assistant theme values (`var(--state-active-color)`, `var(--state-error-color)`) when omitted. Legacy keys `stopped_color` and `containers[].stopped_color` still map to the new not-running color options for backward compatibility.
+
+## CPU and memory usage
+
+Point `cpu_entity` and `memory_entity` at any numeric sensor and the values appear as a small line
+under the container's status:
+
+```yaml
+containers:
+  - name: Home Assistant
+    status_entity: sensor.docker_homeassistant_status
+    control_entity: switch.docker_homeassistant
+    cpu_entity: sensor.docker_homeassistant_cpu
+    memory_entity: sensor.docker_homeassistant_memory
+```
+
 
 ## Styling and customization
 
 - **Accent colors:** Override `running_color` and `not_running_color` globally, or set per-container overrides to highlight critical services.
 - **Running/Total highlight:** The "Running / Total" overview pill turns the not-running color whenever the counts diverge—handy for spotting issues at a glance.
 - **Theme alignment:** The card inherits typography, spacing, and background from your current Home Assistant theme, so it stays consistent without extra work.
+- **Resource line:** CPU and memory only take up space when you configure them, so a mixed dashboard can show usage for the containers you care about and stay compact for the rest.
 
 ## Exposing Docker to Home Assistant
 
@@ -152,32 +201,42 @@ For environments that do not use Portainer, the example below shows how to surfa
 sensor:
   - platform: command_line
     name: docker_containers_total
-    command: "docker info --format '{{.Containers}}'"
+    command: "docker info --format '{% raw %}{{.Containers}}{% endraw %}'"
     scan_interval: 60
   - platform: command_line
     name: docker_containers_running
-    command: "docker info --format '{{.ContainersRunning}}'"
+    command: "docker info --format '{% raw %}{{.ContainersRunning}}{% endraw %}'"
     scan_interval: 60
   - platform: command_line
     name: docker_containers_stopped
-    command: "docker info --format '{{.ContainersStopped}}'"
+    command: "docker info --format '{% raw %}{{.ContainersStopped}}{% endraw %}'"
     scan_interval: 60
   - platform: command_line
     name: docker_images
-    command: "docker info --format '{{.Images}}'"
+    command: "docker info --format '{% raw %}{{.Images}}{% endraw %}'"
     scan_interval: 300
   - platform: command_line
     name: docker_version
-    command: "docker version --format '{{.Server.Version}}'"
+    command: "docker version --format '{% raw %}{{.Server.Version}}{% endraw %}'"
     scan_interval: 3600
   - platform: command_line
     name: docker_homeassistant_status
-    command: "docker inspect -f '{{.State.Status}}' homeassistant"
+    command: "docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' homeassistant"
     scan_interval: 30
   - platform: command_line
     name: docker_nodered_status
-    command: "docker inspect -f '{{.State.Status}}' nodered"
+    command: "docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' nodered"
     scan_interval: 30
+  - platform: command_line
+    name: docker_homeassistant_cpu
+    command: "docker stats homeassistant --no-stream --format '{% raw %}{{.CPUPerc}}{% endraw %}' | tr -d '%'"
+    unit_of_measurement: "%"
+    scan_interval: 60
+  - platform: command_line
+    name: docker_homeassistant_memory
+    command: "docker stats homeassistant --no-stream --format '{% raw %}{{.MemPerc}}{% endraw %}' | tr -d '%'"
+    unit_of_measurement: "%"
+    scan_interval: 60
 
 binary_sensor:
   - platform: command_line
@@ -232,7 +291,7 @@ switch:
         friendly_name: Docker Home Assistant
         command_on: "docker start homeassistant"
         command_off: "docker stop homeassistant"
-        command_state: "docker inspect -f '{{.State.Running}}' homeassistant"
+        command_state: "docker inspect -f '{% raw %}{{.State.Running}}{% endraw %}' homeassistant"
         value_template: "{{ value == 'true' or value == 'running' }}"
 
 button:
@@ -251,6 +310,9 @@ Once the entities above are available, wire them into the card configuration as 
 - **Custom card not found:** Ensure the resource URL is registered (`/hacsfiles/...` for HACS, `/local/...` for manual installs) and hard-refresh the browser.
 - **Entities missing:** Double-check the Portainer integration is connected and that entity IDs in your YAML match the ones generated in Home Assistant.
 - **Colors not updating:** Reload the dashboard after updating `running_color`/`not_running_color`, and confirm there are no typos in the CSS variables or hex codes.
+- **Start/stop switch is greyed out:** The container has no `control_entity`, no `start_service`/`stop_service`, or points at a read-only entity such as a `sensor` or `binary_sensor`.
+- **CPU/memory line missing:** The sensor is `unknown`, `unavailable`, or non-numeric. Check its state in **Developer Tools → States**; a state like `7.24%` (with the unit baked into the state) is a string, not a number—strip the `%` in the sensor and set `unit_of_measurement` instead.
+- **Memory shown as a percentage when it isn't:** A sensor with no `unit_of_measurement` is assumed to be a percentage. Set the unit (`MB`, `MiB`, …) on the sensor.
 
 ## Development
 
@@ -259,4 +321,4 @@ Once the entities above are available, wire them into the card configuration as 
 
 ## License
 
-MIT © 2025
+MIT

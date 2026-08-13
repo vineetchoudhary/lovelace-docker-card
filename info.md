@@ -6,6 +6,7 @@ A simple Lovelace card that lets you monitor and control your Docker containers 
 
 - Compact overview of Docker host stats (counts, version, OS, daemon state)
 - Live container list with status badges and start/stop actions
+- Optional per-container CPU and memory usage
 - Optional restart button per container for quick recovery
 - Theme-aware styling with configurable running vs not-running colors
 - Works out of the box with Portainer entities or any toggle-friendly domain
@@ -41,6 +42,8 @@ containers:
     status_entity: sensor.docker_homeassistant_status
     control_entity: switch.docker_homeassistant
     restart_entity: switch.docker_restart_homeassistant
+    cpu_entity: sensor.docker_homeassistant_cpu
+    memory_entity: sensor.docker_homeassistant_memory
     tap_action:
       action: more-info
     hold_action:
@@ -50,6 +53,8 @@ containers:
     status_entity: sensor.docker_nodered_status
     control_entity: switch.docker_nodered
     restart_entity: button.docker_restart_nodered
+    cpu_entity: sensor.docker_nodered_cpu
+    memory_entity: sensor.docker_nodered_memory
     tap_action:
       action: toggle
     hold_action:
