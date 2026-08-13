@@ -126,6 +126,46 @@
     automation: { service: "trigger" },
   };
 
+  const CONTAINER_KEYS = [
+    "id",
+    "name",
+    "status_entity",
+    "control_entity",
+    "control_domain",
+    "switch_entity",
+    "switch_domain",
+    "restart_entity",
+    "restart_domain",
+    "cpu_entity",
+    "memory_entity",
+    "start_service",
+    "stop_service",
+    "restart_service",
+    "running_states",
+    "stopped_states",
+    "running_color",
+    "not_running_color",
+    "stopped_color",
+    "tap_action",
+    "hold_action",
+    "hold_delay",
+  ];
+
+  const looksLikeContainer = (value) =>
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    CONTAINER_KEYS.some((key) => Object.prototype.hasOwnProperty.call(value, key));
+
+  const lowercaseList = (value) => {
+    if (!Array.isArray(value)) {
+      return undefined;
+    }
+    return value
+      .filter((entry) => entry !== undefined && entry !== null)
+      .map((entry) => entry.toString().toLowerCase());
+  };
+
   const cryptoRandom = () => {
     if (typeof crypto !== "undefined" && crypto.randomUUID) {
       return crypto.randomUUID();
@@ -175,6 +215,12 @@
         containers,
       };
 
+      this.config.running_states =
+        lowercaseList(this.config.running_states) || ["running", "on", "started", "up"];
+      this.config.stopped_states =
+        lowercaseList(this.config.stopped_states) || ["stopped", "off", "exited", "down", "inactive"];
+      this._trackedEntities = undefined;
+
       if (typeof this.config.containers_expanded === "boolean") {
         this._containersExpanded = this.config.containers_expanded;
       }
@@ -195,12 +241,67 @@
     }
 
     set hass(hass) {
+      const previous = this._hass;
       this._hass = hass;
+      if (previous && !this._relevantStateChanged(previous, hass)) {
+        return;
+      }
       this.render();
     }
 
+    get hass() {
+      return this._hass;
+    }
+
     getCardSize() {
-      return 4;
+      if (!this.config) {
+        return 3;
+      }
+      if (!this._containersExpanded) {
+        return 3;
+      }
+      return 3 + Math.min(this.config.containers.length, 8);
+    }
+
+    _relevantStateChanged(previous, next) {
+      if (!previous || !next || !previous.states || !next.states || !this.config) {
+        return true;
+      }
+      if ((previous.selectedLanguage || previous.language) !== (next.selectedLanguage || next.language)) {
+        return true;
+      }
+      return this._trackedEntityIds().some((entityId) => previous.states[entityId] !== next.states[entityId]);
+    }
+
+    _trackedEntityIds() {
+      if (this._trackedEntities) {
+        return this._trackedEntities;
+      }
+
+      const ids = new Set();
+      const add = (value) => {
+        if (typeof value === "string" && value.includes(".")) {
+          ids.add(value);
+        }
+      };
+
+      Object.values(this.config.docker_overview || {}).forEach(add);
+      (this.config.containers || []).forEach((container) => {
+        add(container.status_entity);
+        add(container.control_entity);
+        add(container.switch_entity);
+        add(container.restart_entity);
+        add(container.cpu_entity);
+        add(container.memory_entity);
+        [container.tap_action, container.hold_action].forEach((action) => {
+          if (action && typeof action === "object") {
+            add(action.entity);
+          }
+        });
+      });
+
+      this._trackedEntities = Array.from(ids);
+      return this._trackedEntities;
     }
 
     render() {
@@ -535,7 +636,7 @@
           ha-card.docker-card {
             padding: 0.9rem;
           }
-          .docker-grid {
+          .docker-overview {
             grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
           }
         }
@@ -605,6 +706,7 @@
 
       const total = fetchState("container_count");
       const running = fetchState("containers_running");
+      const stopped = fetchState("containers_stopped");
       const images = fetchState("image_count");
       const dockerVersion = fetchState("docker_version");
       const osName = fetchState("operating_system");
@@ -613,8 +715,16 @@
       const overviewItems = [];
 
       const runningCount = this._parseIntState(running.state);
-      const totalCount = this._parseIntState(total.state);
-      const runningValue = `${this._formatStateValue(running.state)} / ${this._formatStateValue(total.state)}`;
+      let totalCount = this._parseIntState(total.state);
+      let totalLabel = this._formatStateValue(total.state);
+      if (totalCount === undefined && typeof runningCount === "number") {
+        const stoppedCount = this._parseIntState(stopped.state);
+        if (typeof stoppedCount === "number") {
+          totalCount = runningCount + stoppedCount;
+          totalLabel = String(totalCount);
+        }
+      }
+      const runningValue = `${this._formatStateValue(running.state)} / ${totalLabel}`;
       if (!this._isPlaceholderValue(runningValue)) {
         const varianceClass =
           typeof runningCount === "number" && typeof totalCount === "number" && runningCount !== totalCount
@@ -765,6 +875,7 @@
 
       containers.forEach((container) => {
         const key = this._containerKey(container);
+        const pendingAction = this._pending.get(key);
         const row = document.createElement("div");
         row.classList.add("container-row");
         row.dataset.containerKey = key;
@@ -780,7 +891,7 @@
         if (notRunningColor) {
           row.style.setProperty("--docker-card-not-running-color", notRunningColor);
         }
-        if (this._pending.has(key)) {
+        if (pendingAction) {
           row.classList.add("pending");
         }
 
@@ -808,8 +919,8 @@
         actions.classList.add("actions");
 
         const toggle = document.createElement("ha-switch");
-        toggle.checked = statusInfo.isRunning;
-        toggle.disabled = !statusInfo.canToggle || this._pending.has(key);
+        toggle.checked = pendingAction ? pendingAction === "start" : statusInfo.isRunning;
+        toggle.disabled = !statusInfo.canToggle || Boolean(pendingAction);
         toggle.title = statusInfo.isRunning
           ? this._localize("actions.stop_container")
           : this._localize("actions.start_container");
@@ -827,7 +938,7 @@
         const restartButton = document.createElement("button");
         restartButton.classList.add("restart-button");
         restartButton.textContent = this._localize("actions.restart");
-        restartButton.disabled = !statusInfo.canRestart || this._pending.has(key);
+        restartButton.disabled = !statusInfo.canRestart || Boolean(pendingAction);
         restartButton.addEventListener("click", (event) => {
           event.stopPropagation();
           this._handleRestart(container, restartButton);
@@ -876,7 +987,8 @@
         }
       };
 
-      if (Array.isArray(input) || (typeof input === "object" && typeof input[Symbol.iterator] === "function")) {
+      const isIterable = Array.isArray(input) || typeof input[Symbol.iterator] === "function";
+      if (isIterable) {
         try {
           for (const candidate of input) {
             addCandidate(candidate);
@@ -884,6 +996,14 @@
         } catch (error) {
           console.warn("docker-card: Failed to iterate containers", error);
         }
+        if (!result.length && Array.isArray(input) && input.length) {
+          console.warn("docker-card: Containers configuration could not be parsed", input);
+        }
+        return result;
+      }
+
+      if (!result.length && looksLikeContainer(input)) {
+        addCandidate(input);
       }
 
       if (!result.length && typeof input === "object") {
@@ -924,6 +1044,16 @@
       }
       if (clone && clone.stopped_color && !clone.not_running_color) {
         clone.not_running_color = clone.stopped_color;
+      }
+      if (clone) {
+        const running = lowercaseList(clone.running_states);
+        const stopped = lowercaseList(clone.stopped_states);
+        if (running) {
+          clone.running_states = running;
+        }
+        if (stopped) {
+          clone.stopped_states = stopped;
+        }
       }
       return clone;
     }
@@ -984,72 +1114,62 @@
         return null;
       }
 
-      const cpuEntity = container.cpu_entity ? this._getEntity(container.cpu_entity) : undefined;
-      const memoryEntity = container.memory_entity ? this._getEntity(container.memory_entity) : undefined;
-
-      if (!cpuEntity && !memoryEntity) {
-        return null;
-      }
+      const entries = [
+        { key: "cpu_entity", label: "resources.cpu" },
+        { key: "memory_entity", label: "resources.memory" },
+      ];
 
       const resourcesDiv = document.createElement("div");
       resourcesDiv.classList.add("container-resources");
 
-      if (cpuEntity) {
-        const cpuValue = this._formatPercentage(cpuEntity.state);
-        if (cpuValue !== null) {
-          const cpuItem = document.createElement("div");
-          cpuItem.classList.add("resource-item");
-
-          const cpuLabel = document.createElement("span");
-          cpuLabel.classList.add("resource-label");
-          cpuLabel.textContent = `${this._localize("resources.cpu")}:`;
-          cpuItem.appendChild(cpuLabel);
-
-          const cpuVal = document.createElement("span");
-          cpuVal.classList.add("resource-value");
-          cpuVal.textContent = cpuValue;
-          cpuItem.appendChild(cpuVal);
-
-          resourcesDiv.appendChild(cpuItem);
+      entries.forEach(({ key, label }) => {
+        const entity = container[key] ? this._getEntity(container[key]) : undefined;
+        const value = this._formatResourceValue(entity);
+        if (value === null) {
+          return;
         }
-      }
 
-      if (memoryEntity) {
-        const memValue = this._formatPercentage(memoryEntity.state);
-        if (memValue !== null) {
-          const memItem = document.createElement("div");
-          memItem.classList.add("resource-item");
+        const item = document.createElement("div");
+        item.classList.add("resource-item");
 
-          const memLabel = document.createElement("span");
-          memLabel.classList.add("resource-label");
-          memLabel.textContent = `${this._localize("resources.memory")}:`;
-          memItem.appendChild(memLabel);
+        const labelEl = document.createElement("span");
+        labelEl.classList.add("resource-label");
+        labelEl.textContent = `${this._localize(label)}:`;
+        item.appendChild(labelEl);
 
-          const memVal = document.createElement("span");
-          memVal.classList.add("resource-value");
-          memVal.textContent = memValue;
-          memItem.appendChild(memVal);
+        const valueEl = document.createElement("span");
+        valueEl.classList.add("resource-value");
+        valueEl.textContent = value;
+        item.appendChild(valueEl);
 
-          resourcesDiv.appendChild(memItem);
-        }
-      }
+        resourcesDiv.appendChild(item);
+      });
 
       return resourcesDiv.children.length > 0 ? resourcesDiv : null;
     }
 
-    _formatPercentage(value) {
-      if (value === undefined || value === null) {
+    _formatResourceValue(entity) {
+      if (!entity) {
         return null;
       }
-      const str = value.toString().toLowerCase();
-      if (str === "unknown" || str === "unavailable" || str === "") {
+      const raw = entity.state;
+      if (raw === undefined || raw === null) {
         return null;
       }
-      const num = parseFloat(value);
-      if (isNaN(num)) {
+      const str = raw.toString().trim().toLowerCase();
+      if (str === "" || str === "unknown" || str === "unavailable") {
         return null;
       }
-      return `${num.toFixed(1)}%`;
+      const num = Number.parseFloat(raw);
+      if (Number.isNaN(num)) {
+        return null;
+      }
+      const unit = (entity.attributes && entity.attributes.unit_of_measurement) || "%";
+      if (unit === "%") {
+        return `${num.toFixed(1)}%`;
+      }
+      const rounded = Math.abs(num) >= 100 ? num.toFixed(0) : num.toFixed(1).replace(/\.0$/, "");
+      return `${rounded} ${unit}`;
     }
 
     _translationUrl(language) {
@@ -1090,6 +1210,7 @@
         })
         .catch((error) => {
           console.warn(`docker-card: Failed to load ${language} translations`, error);
+          TRANSLATION_CACHE.set(language, TRANSLATION_CACHE.get(DEFAULT_LANGUAGE) || DEFAULT_TRANSLATIONS);
         })
         .finally(() => {
           TRANSLATION_PROMISES.delete(language);
@@ -1203,8 +1324,8 @@
         return;
       }
 
-      const defaultEntity =
-        statusInfo.entityId || container.status_entity || container.control_entity || container.switch_entity;
+      const defaultEntity = statusInfo.entityId || container.status_entity || container.control_entity || container.switch_entity;
+      const toggleEntity = container.control_entity || container.switch_entity || defaultEntity;
 
       row.classList.add("actionable");
       row.setAttribute("role", "button");
@@ -1240,7 +1361,7 @@
         holdTimer = window.setTimeout(() => {
           holdTimer = null;
           holdActivated = true;
-          this._handleContainerAction(holdAction, defaultEntity);
+          this._handleContainerAction(holdAction, defaultEntity, toggleEntity);
         }, holdDelay);
       };
 
@@ -1273,7 +1394,7 @@
           return;
         }
         if (tapAction) {
-          this._handleContainerAction(tapAction, defaultEntity);
+          this._handleContainerAction(tapAction, defaultEntity, toggleEntity);
         }
       };
 
@@ -1282,14 +1403,14 @@
           event.preventDefault();
           keyboardClickSuppressed = true;
           if (tapAction) {
-            this._handleContainerAction(tapAction, defaultEntity);
+            this._handleContainerAction(tapAction, defaultEntity, toggleEntity);
           }
         }
         if ((event.key === " " || event.key === "Space" || event.key === "Spacebar") && holdAction) {
           event.preventDefault();
           holdActivated = true;
           keyboardClickSuppressed = true;
-          this._handleContainerAction(holdAction, defaultEntity);
+          this._handleContainerAction(holdAction, defaultEntity, toggleEntity);
         }
       };
 
@@ -1337,7 +1458,7 @@
       return { ...action };
     }
 
-    _handleContainerAction(actionConfig, defaultEntity) {
+    _handleContainerAction(actionConfig, defaultEntity, toggleEntity) {
       const config = this._normalizeActionConfig(actionConfig);
       if (!config || config.action === "none") {
         return;
@@ -1422,7 +1543,7 @@
           break;
         }
         case "toggle": {
-          const entityId = config.entity || defaultEntity;
+          const entityId = config.entity || toggleEntity || defaultEntity;
           if (entityId && this._hass) {
             this._toggleEntity(entityId);
           }
@@ -1548,10 +1669,8 @@
             ? this._localize("notifications.failed_start", { name: displayName })
             : this._localize("notifications.failed_stop", { name: displayName }),
         );
-        toggleEl.checked = !shouldRun;
       } finally {
         this._pending.delete(key);
-        toggleEl.disabled = false;
         this.render();
       }
     }
@@ -1581,7 +1700,6 @@
         this._notify(this._localize("notifications.failed_restart", { name: displayName }));
       } finally {
         this._pending.delete(key);
-        buttonEl.disabled = false;
         this.render();
       }
     }
