@@ -126,9 +126,13 @@
     automation: { service: "trigger" },
   };
 
+  const DEFAULT_CONTAINER_ICON = "mdi:docker";
+
   const CONTAINER_KEYS = [
     "id",
     "name",
+    "icon",
+    "extra_entities",
     "status_entity",
     "control_entity",
     "control_domain",
@@ -156,6 +160,50 @@
     typeof value === "object" &&
     !Array.isArray(value) &&
     CONTAINER_KEYS.some((key) => Object.prototype.hasOwnProperty.call(value, key));
+
+  const normalizeExtraEntities = (value) => {
+    if (!value) {
+      return [];
+    }
+    const list = Array.isArray(value) ? value : [value];
+    const result = [];
+    list.forEach((entry) => {
+      if (typeof entry === "string") {
+        const entityId = entry.trim();
+        if (entityId) {
+          result.push({ entity: entityId });
+        }
+        return;
+      }
+      if (entry && typeof entry === "object" && typeof entry.entity === "string") {
+        const entityId = entry.entity.trim();
+        if (entityId) {
+          result.push({ ...entry, entity: entityId });
+        }
+      }
+    });
+    return result;
+  };
+
+  // "auto" | "always" | "never", from a boolean or one of those strings.
+  const normalizeVisibility = (value) => {
+    if (value === true) {
+      return "always";
+    }
+    if (value === false) {
+      return "never";
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "always" || normalized === "true") {
+        return "always";
+      }
+      if (normalized === "never" || normalized === "false") {
+        return "never";
+      }
+    }
+    return "auto";
+  };
 
   const lowercaseList = (value) => {
     if (!Array.isArray(value)) {
@@ -219,6 +267,8 @@
         lowercaseList(this.config.running_states) || ["running", "on", "started", "up"];
       this.config.stopped_states =
         lowercaseList(this.config.stopped_states) || ["stopped", "off", "exited", "down", "inactive"];
+      this.config.show_containers = normalizeVisibility(this.config.show_containers);
+      this.config.show_icons = normalizeVisibility(this.config.show_icons);
       this._trackedEntities = undefined;
 
       if (typeof this.config.containers_expanded === "boolean") {
@@ -257,6 +307,9 @@
       if (!this.config) {
         return 3;
       }
+      if (this.config.show_containers === "never") {
+        return 2;
+      }
       if (!this._containersExpanded) {
         return 3;
       }
@@ -293,6 +346,7 @@
         add(container.restart_entity);
         add(container.cpu_entity);
         add(container.memory_entity);
+        (container.extra_entities || []).forEach((extra) => add(extra.entity));
         [container.tap_action, container.hold_action].forEach((action) => {
           if (action && typeof action === "object") {
             add(action.entity);
@@ -346,14 +400,20 @@
         card.appendChild(overview);
       }
 
-      const containerSection = this._buildContainers();
-      card.appendChild(containerSection);
+      const containerSection = this._buildContainers(Boolean(overview));
+      if (containerSection) {
+        card.appendChild(containerSection);
+      }
     }
 
     _style() {
       return `
         :host {
           display: block;
+          /* Lets the row reflow by card width rather than viewport width — a
+             narrow dashboard column on a wide screen needs the same treatment
+             as a phone. */
+          container-type: inline-size;
         }
         ha-card.docker-card {
           padding: 1rem 1.25rem;
@@ -551,6 +611,19 @@
           opacity: 0.65;
           cursor: progress;
         }
+        .container-icon {
+          --mdc-icon-size: 24px;
+          width: 24px;
+          height: 24px;
+          flex: 0 0 auto;
+          color: var(--docker-card-not-running-color, var(--state-error-color, var(--error-color, #c22040)));
+        }
+        .container-row.running .container-icon {
+          color: var(--docker-card-running-color, var(--state-active-color, var(--success-color, #2e8f57)));
+        }
+        .container-icon.placeholder-icon {
+          visibility: hidden;
+        }
         .container-info {
           display: flex;
           flex-direction: column;
@@ -584,17 +657,29 @@
           font-size: 0.75rem;
           color: var(--secondary-text-color);
           margin-top: 0.25rem;
+          max-width: 100%;
         }
         .resource-item {
           display: flex;
           align-items: center;
           gap: 0.25rem;
+          min-width: 0;
         }
         .resource-label {
           font-weight: 500;
+          flex: 0 0 auto;
+        }
+        .resource-icon {
+          --mdc-icon-size: 14px;
+          width: 14px;
+          height: 14px;
+          flex: 0 0 auto;
         }
         .resource-value {
           font-variant-numeric: tabular-nums;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .actions {
           display: flex;
@@ -638,6 +723,20 @@
           }
           .docker-overview {
             grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          }
+        }
+        @container (max-width: 360px) {
+          .container-row {
+            flex-wrap: wrap;
+            row-gap: 0.6rem;
+          }
+          .container-info {
+            flex: 1 1 100%;
+          }
+          .actions {
+            width: 100%;
+            margin-left: 0;
+            justify-content: flex-end;
           }
         }
       `;
@@ -826,7 +925,19 @@
       return overview;
     }
 
-    _buildContainers() {
+    _buildContainers(hasOverview) {
+      const { containers, show_containers: showContainers } = this.config;
+
+      if (showContainers === "never") {
+        return null;
+      }
+      // "auto": drop the whole section when it has nothing to say, but only if
+      // the card still shows something else. An otherwise empty card keeps the
+      // hint so a broken config is visible rather than silently blank.
+      if (showContainers !== "always" && !containers.length && hasOverview) {
+        return null;
+      }
+
       const section = document.createElement("div");
       section.classList.add("container-section");
       if (!this._containersExpanded) {
@@ -863,8 +974,6 @@
       list.hidden = !this._containersExpanded;
       section.appendChild(list);
 
-      const { containers } = this.config;
-
       if (!containers.length) {
         const hint = document.createElement("div");
         hint.classList.add("empty-hint");
@@ -873,7 +982,12 @@
         return section;
       }
 
-      containers.forEach((container) => {
+      // Resolved up front so rows without an icon can reserve the same space and
+      // keep the list aligned.
+      const icons = containers.map((container) => this._resolveContainerIcon(container));
+      const anyIcon = icons.some(Boolean);
+
+      containers.forEach((container, index) => {
         const key = this._containerKey(container);
         const pendingAction = this._pending.get(key);
         const row = document.createElement("div");
@@ -893,6 +1007,17 @@
         }
         if (pendingAction) {
           row.classList.add("pending");
+        }
+
+        if (anyIcon) {
+          const icon = document.createElement("ha-icon");
+          icon.classList.add("container-icon");
+          if (icons[index]) {
+            icon.setAttribute("icon", icons[index]);
+          } else {
+            icon.classList.add("placeholder-icon");
+          }
+          row.appendChild(icon);
         }
 
         const infoBlock = document.createElement("div");
@@ -1045,6 +1170,9 @@
       if (clone && clone.stopped_color && !clone.not_running_color) {
         clone.not_running_color = clone.stopped_color;
       }
+      if (clone && Object.prototype.hasOwnProperty.call(clone, "extra_entities")) {
+        clone.extra_entities = normalizeExtraEntities(clone.extra_entities);
+      }
       if (clone) {
         const running = lowercaseList(clone.running_states);
         const stopped = lowercaseList(clone.stopped_states);
@@ -1109,33 +1237,82 @@
       return friendly || this._localize("common.container");
     }
 
+    _resolveContainerIcon(container) {
+      if (!container || this.config.show_icons === "never") {
+        return undefined;
+      }
+
+      const configured = container.icon;
+      if (configured === false || configured === "none") {
+        return undefined;
+      }
+      if (typeof configured === "string" && configured.trim()) {
+        return configured.trim();
+      }
+
+      const candidates = [
+        container.status_entity,
+        container.control_entity,
+        container.switch_entity,
+      ];
+      for (const entityId of candidates) {
+        const entity = entityId ? this._getEntity(entityId) : undefined;
+        const icon = entity && entity.attributes ? entity.attributes.icon : undefined;
+        if (typeof icon === "string" && icon.trim()) {
+          return icon.trim();
+        }
+      }
+
+      // "auto" only shows an icon somebody actually chose; "always" fills the gaps.
+      return this.config.show_icons === "always" ? DEFAULT_CONTAINER_ICON : undefined;
+    }
+
     _buildResourceUsage(container) {
       if (!container) {
         return null;
       }
 
-      const entries = [
-        { key: "cpu_entity", label: "resources.cpu" },
-        { key: "memory_entity", label: "resources.memory" },
+      const displayName = this._containerDisplayName(container);
+      const items = [
+        { entityId: container.cpu_entity, label: this._localize("resources.cpu") },
+        { entityId: container.memory_entity, label: this._localize("resources.memory") },
       ];
+
+      (container.extra_entities || []).forEach((extra) => {
+        const entity = this._getEntity(extra.entity);
+        items.push({
+          entityId: extra.entity,
+          label: this._extraEntityLabel(extra, entity, displayName),
+          icon: extra.icon,
+          allowText: true,
+        });
+      });
 
       const resourcesDiv = document.createElement("div");
       resourcesDiv.classList.add("container-resources");
 
-      entries.forEach(({ key, label }) => {
-        const entity = container[key] ? this._getEntity(container[key]) : undefined;
-        const value = this._formatResourceValue(entity);
+      items.forEach(({ entityId, label, icon, allowText }) => {
+        const entity = entityId ? this._getEntity(entityId) : undefined;
+        const value = this._formatResourceValue(entity, { allowText });
         if (value === null) {
           return;
         }
 
         const item = document.createElement("div");
         item.classList.add("resource-item");
+        item.title = `${label}: ${value}`;
 
-        const labelEl = document.createElement("span");
-        labelEl.classList.add("resource-label");
-        labelEl.textContent = `${this._localize(label)}:`;
-        item.appendChild(labelEl);
+        if (icon) {
+          const iconEl = document.createElement("ha-icon");
+          iconEl.classList.add("resource-icon");
+          iconEl.setAttribute("icon", icon);
+          item.appendChild(iconEl);
+        } else {
+          const labelEl = document.createElement("span");
+          labelEl.classList.add("resource-label");
+          labelEl.textContent = `${label}:`;
+          item.appendChild(labelEl);
+        }
 
         const valueEl = document.createElement("span");
         valueEl.classList.add("resource-value");
@@ -1148,7 +1325,38 @@
       return resourcesDiv.children.length > 0 ? resourcesDiv : null;
     }
 
-    _formatResourceValue(entity) {
+    _extraEntityLabel(extra, entity, containerName) {
+      if (extra.name) {
+        return extra.name;
+      }
+
+      const friendly = entity && entity.attributes ? entity.attributes.friendly_name : undefined;
+      if (friendly) {
+        // Portainer sets has_entity_name, so friendly names read "Zigbee2MQTT Image".
+        const stripped = this._stripNamePrefix(friendly, containerName);
+        return stripped || friendly;
+      }
+
+      const objectId = extra.entity.split(".")[1] || extra.entity;
+      return objectId
+        .split("_")
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+    }
+
+    _stripNamePrefix(value, prefix) {
+      if (!value || !prefix) {
+        return "";
+      }
+      const text = value.toString();
+      if (text.toLowerCase().indexOf(prefix.toString().toLowerCase()) !== 0) {
+        return "";
+      }
+      return text.slice(prefix.length).replace(/^[\s\-_·:]+/, "").trim();
+    }
+
+    _formatResourceValue(entity, options = {}) {
       if (!entity) {
         return null;
       }
@@ -1156,20 +1364,37 @@
       if (raw === undefined || raw === null) {
         return null;
       }
-      const str = raw.toString().trim().toLowerCase();
-      if (str === "" || str === "unknown" || str === "unavailable") {
+      const text = raw.toString().trim();
+      const lower = text.toLowerCase();
+      if (text === "" || lower === "unknown" || lower === "unavailable") {
         return null;
       }
-      const num = Number.parseFloat(raw);
+
+      // Strict first: a version-like state ("2024.1.0") must not be read as 2024.
+      // Percent/size sensors that bake the unit into the state ("7.2%") still
+      // parse leniently, but only where a number is the only sensible answer.
+      let num;
+      if (/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(text)) {
+        num = Number(text);
+      } else if (options.allowText) {
+        return text;
+      } else {
+        num = Number.parseFloat(text);
+      }
+
       if (Number.isNaN(num)) {
-        return null;
+        return options.allowText ? text : null;
       }
-      const unit = (entity.attributes && entity.attributes.unit_of_measurement) || "%";
+
+      // CPU/memory are percentages unless told otherwise; an arbitrary extra
+      // entity gets no unit invented for it.
+      const declaredUnit = (entity.attributes && entity.attributes.unit_of_measurement) || "";
+      const unit = declaredUnit || (options.allowText ? "" : "%");
       if (unit === "%") {
         return `${num.toFixed(1)}%`;
       }
       const rounded = Math.abs(num) >= 100 ? num.toFixed(0) : num.toFixed(1).replace(/\.0$/, "");
-      return `${rounded} ${unit}`;
+      return unit ? `${rounded} ${unit}` : rounded;
     }
 
     _translationUrl(language) {
