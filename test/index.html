@@ -1,0 +1,2461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docker Card — test suite</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --fg: #1b1c1e;
+    --muted: #6b7076;
+    --panel: #fff;
+    --line: #e3e5e9;
+    --pass: #1b873f;
+    --fail: #c62828;
+    --pass-bg: #e8f5e9;
+    --fail-bg: #fdecea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131417;
+      --fg: #e7e8ea;
+      --muted: #9aa0a6;
+      --panel: #1c1e22;
+      --line: #2c2f35;
+      --pass: #58d68d;
+      --fail: #ff7b72;
+      --pass-bg: #16281c;
+      --fail-bg: #2d1a1a;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 24px 64px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  #banner {
+    display: none;
+    padding: 16px 20px;
+    border-radius: 10px;
+    background: var(--fail-bg);
+    border: 1px solid var(--fail);
+    color: var(--fail);
+    margin-bottom: 24px;
+  }
+  #banner code {
+    display: block;
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border-radius: 6px;
+    color: var(--fg);
+    user-select: all;
+  }
+
+  #summary {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 22px;
+    border-radius: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  #score { font: 700 22px/1 ui-monospace, monospace; }
+  #score.ok { color: var(--pass); }
+  #score.bad { color: var(--fail); }
+  #summary .spacer { flex: 1; }
+  label.toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+  .jump { display: flex; gap: 12px; margin-right: 6px; }
+  .jump a { color: var(--muted); text-decoration: none; font-size: 12px; border-bottom: 1px dotted var(--line); }
+  .jump a:hover { color: var(--fg); border-bottom-color: var(--muted); }
+  h2[id] { scroll-margin-top: 88px; }
+
+  .group { margin-top: 20px; }
+  .group > h3 {
+    font: 600 12px/1 ui-monospace, monospace;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 20px 0 8px;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 58px 1fr;
+    gap: 10px;
+    padding: 7px 12px;
+    border-radius: 6px;
+    align-items: start;
+  }
+  .row + .row { margin-top: 2px; }
+  .row .tag { font: 700 11px/1.5 ui-monospace, monospace; }
+  .row.pass { background: var(--pass-bg); }
+  .row.pass .tag { color: var(--pass); }
+  .row.fail { background: var(--fail-bg); }
+  .row.fail .tag { color: var(--fail); }
+  .row .detail { display: block; color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; margin-top: 4px; word-break: break-all; }
+  body.only-fails .row.pass { display: none; }
+  body.only-fails .group.all-pass { display: none; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+  .themes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 780px) { .themes { grid-template-columns: 1fr; } }
+  .theme-pane { padding: 18px; border-radius: 10px; }
+  .theme-pane > h4 { margin: 0 0 14px; font: 600 11px/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
+  .stack { display: grid; gap: 14px; }
+
+  /* Home Assistant theme variables, as the frontend defines them. */
+  .theme-light {
+    --primary-color: #03a9f4;
+    --primary-text-color: #212121;
+    --secondary-text-color: #727272;
+    --text-primary-color: #fff;
+    --divider-color: rgba(0, 0, 0, .12);
+    --state-active-color: #fdd835;
+    --state-error-color: #db4437;
+    --success-color: #0f9d58;
+    --error-color: #db4437;
+    --warning-color: #ffa600;
+    --card-background-color: #fff;
+    --ha-card-background: #fff;
+    --ha-card-border-radius: 12px;
+    background: #f2f4f9;
+  }
+  .theme-light > h4 { color: #212121; }
+  .theme-dark {
+    --primary-color: #03a9f4;
+    --primary-text-color: #e1e1e1;
+    --secondary-text-color: #9b9b9b;
+    --text-primary-color: #fff;
+    --divider-color: rgba(255, 255, 255, .12);
+    --state-active-color: #fdd835;
+    --state-error-color: #db4437;
+    --success-color: #0f9d58;
+    --error-color: #db4437;
+    --warning-color: #ffa600;
+    --card-background-color: #1c1c1c;
+    --ha-card-background: #1c1c1c;
+    --ha-card-border-radius: 12px;
+    background: #111114;
+  }
+  .theme-dark > h4 { color: #e1e1e1; }
+
+  /* ---- interactive control harness ---- */
+  .lab { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 16px; }
+  @media (max-width: 900px) { .lab { grid-template-columns: 1fr; } }
+  .lab-side { display: grid; gap: 16px; align-content: start; }
+  .controls { display: grid; gap: 10px; }
+  .controls .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .controls button {
+    font: inherit; font-size: 12px; padding: 7px 11px; cursor: pointer;
+    color: var(--fg); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 7px;
+  }
+  .controls button:hover { border-color: var(--muted); }
+  .controls button:active { transform: translateY(1px); }
+  .readout {
+    margin: 0; padding: 14px; display: grid; gap: 6px;
+    grid-template-columns: auto 1fr;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  }
+  .readout dt { color: var(--muted); }
+  .readout dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .readout dd.good { color: var(--pass); font-weight: 700; }
+  .readout dd.warn { color: var(--fail); font-weight: 700; }
+  #call-log {
+    margin: 0; padding: 12px 14px; max-height: 190px; overflow: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap;
+    color: var(--muted);
+  }
+  #call-log b { color: var(--fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Docker Card — test suite</h1>
+  <p class="sub">
+    Loads <code>../docker-card.js</code> directly, so this always exercises the real card file.
+  </p>
+
+  <div id="banner">
+    <strong>The card file could not be loaded.</strong>
+    Firefox and Safari block reading a parent directory over <code class="mono">file://</code>.
+    Serve the repo over HTTP from the project root and open
+    <span class="mono">http://localhost:8000/test/</span>:
+    <code>python3 -m http.server 8000</code>
+  </div>
+
+  <div id="summary">
+    <span id="score">running…</span>
+    <span id="score-label" style="color:var(--muted)"></span>
+    <span class="spacer"></span>
+    <nav class="jump">
+      <a href="#panel-render">Rendered</a>
+      <a href="#panel-lab">Control lab</a>
+    </nav>
+    <label class="toggle"><input type="checkbox" id="only-fails"> show failures only</label>
+  </div>
+
+  <div id="results"></div>
+
+  <h2 id="panel-render">Rendered output</h2>
+  <div class="panel">
+    <p class="sub" style="margin-top:0">
+      The panes below define Home Assistant's stock theme variables, so the accent colors are whatever a
+      default install resolves them to — <code>--state-active-color</code> is amber there, not green. Themes
+      that leave it undefined fall through to <code>--success-color</code>, and the third card shows what
+      explicit <code>running_color</code> / <code>not_running_color</code> values look like.
+    </p>
+    <div class="themes">
+      <div class="theme-pane theme-light"><h4>Light theme</h4><div class="stack" id="visual-light"></div></div>
+      <div class="theme-pane theme-dark"><h4>Dark theme</h4><div class="stack" id="visual-dark"></div></div>
+    </div>
+  </div>
+
+  <h2 id="panel-lab">Control lab — interactive</h2>
+  <div class="panel">
+    <p class="sub" style="margin-top:0">
+      Flip the switches and press <em>Restart</em>: every service the card would send to Home Assistant is
+      logged on the right. The counter to watch is <strong>card rebuilds</strong> — Home Assistant calls
+      <code>set hass</code> on <em>every</em> state change in your install, so press
+      <strong>Fire unrelated update</strong> repeatedly: ticks should climb while rebuilds stay put.
+      <strong>Slow service calls</strong> holds the call open so you can see the pending row: the switch stays
+      in the position you asked for and the controls stay disabled until Docker answers.
+    </p>
+    <div class="lab">
+      <div class="theme-pane theme-light"><h4>Live card</h4><div class="stack" id="lab-card"></div></div>
+      <div class="lab-side">
+        <div class="controls">
+          <div class="btn-row">
+            <button type="button" id="tick-quiet">Fire unrelated update</button>
+            <button type="button" id="tick-relevant">Change a container's state</button>
+          </div>
+          <div class="btn-row">
+            <button type="button" id="tick-auto">Fire unrelated updates every 400 ms</button>
+          </div>
+          <div class="btn-row">
+            <label class="toggle"><input type="checkbox" id="slow-calls"> Slow service calls (2 s)</label>
+          </div>
+          <div class="btn-row">
+            <button type="button" id="reset-counters">Reset counters</button>
+            <button type="button" id="clear-log">Clear log</button>
+          </div>
+        </div>
+        <dl class="readout" id="lab-readout"></dl>
+        <pre id="call-log">no service calls yet</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Minimal stand-ins for the Home Assistant components the card renders. */
+(function () {
+  class HaCard extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML =
+        '<style>:host{display:block;border-radius:var(--ha-card-border-radius,12px);' +
+        'background:var(--ha-card-background,var(--card-background-color,#fff));' +
+        'box-shadow:0 2px 2px rgba(0,0,0,.14)}</style><slot></slot>';
+    }
+  }
+  customElements.define("ha-card", HaCard);
+
+  /* ha-icon renders an MDI path from the `icon` attribute. Only the icons this
+     card actually uses are drawn properly; anything else falls back to its
+     initials so the preview stays readable instead of showing a blob. */
+  var MDI = {
+    "mdi:restart": "M12,4C14.1,4 16.1,4.8 17.6,6.3C20.7,9.4 20.7,14.5 17.6,17.6C15.8,19.5 13.3,20.2 10.9,19.9L11.4,17.9C13.1,18.1 14.9,17.5 16.2,16.2C18.5,13.9 18.5,10.1 16.2,7.7C15.1,6.6 13.5,6 12,6V10.6L7,5.6L12,0.6V4M6.3,17.6C3.7,15 3.3,11 5.1,7.9L6.6,9.4C5.5,11.6 5.9,14.4 7.8,16.2C8.3,16.7 8.9,17.1 9.6,17.4L9,19.4C8,19 7.1,18.4 6.3,17.6Z",
+    "mdi:pause": "M14,19H18V5H14M6,19H10V5H6V19Z",
+    "mdi:play": "M8,5.14V19.14L19,12.14L8,5.14Z",
+    "mdi:autorenew": "M12,6V9L16,5L12,1V4A8,8 0 0,0 4,12C4,13.57 4.46,15.03 5.24,16.26L6.7,14.8C6.25,13.97 6,13 6,12A6,6 0 0,1 12,6M18.76,7.74L17.3,9.2C17.74,10.04 18,11 18,12A6,6 0 0,1 12,18V15L8,19L12,23V20A8,8 0 0,0 20,12C20,10.43 19.54,8.97 18.76,7.74Z",
+    "mdi:dots-vertical": "M12,16A2,2 0 0,1 14,18A2,2 0 0,1 12,20A2,2 0 0,1 10,18A2,2 0 0,1 12,16M12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10M12,4A2,2 0 0,1 14,6A2,2 0 0,1 12,8A2,2 0 0,1 10,6A2,2 0 0,1 12,4Z",
+    "mdi:open-in-new": "M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z",
+    "mdi:alert-outline": "M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16",
+    "mdi:chevron-down": "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"
+  };
+  class HaIcon extends HTMLElement {
+    static get observedAttributes() { return ["icon"]; }
+    connectedCallback() { this._draw(); }
+    attributeChangedCallback() { this._draw(); }
+    _draw() {
+      if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+      var name = this.getAttribute("icon") || "";
+      var path = MDI[name];
+      var body;
+      if (path) {
+        body = '<path d="' + path + '"></path>';
+      } else {
+        var initials = name.replace(/^mdi:/, "").split("-")
+          .map(function (w) { return w.charAt(0).toUpperCase(); }).join("").slice(0, 2);
+        body = '<text x="12" y="16" text-anchor="middle" font-size="11" ' +
+               'font-family="ui-monospace,monospace" fill="currentColor">' + initials + '</text>';
+      }
+      this.shadowRoot.innerHTML =
+        '<style>:host{display:inline-flex;width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px)}' +
+        'svg{width:100%;height:100%;fill:currentColor}</style>' +
+        '<svg viewBox="0 0 24 24"><title>' + name + '</title>' + body + '</svg>';
+    }
+  }
+  customElements.define("ha-icon", HaIcon);
+
+  /* ha-switch is a Material web switch: `checked` / `disabled` are properties,
+     a user gesture flips `checked` and then fires a composed `change` event. */
+  class HaSwitch extends HTMLElement {
+    constructor() {
+      super();
+      this._checked = false;
+      this._disabled = false;
+      this.attachShadow({ mode: "open" }).innerHTML =
+        '<style>' +
+        ':host{display:inline-flex;width:36px;height:20px;cursor:pointer;align-items:center}' +
+        ':host([disabled]){opacity:.5;cursor:not-allowed}' +
+        '.track{width:36px;height:14px;border-radius:7px;background:rgba(127,127,127,.5);position:relative}' +
+        '.thumb{position:absolute;top:-3px;left:0;width:20px;height:20px;border-radius:50%;' +
+        'background:#fafafa;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:left .12s ease}' +
+        ':host([checked]) .track{background:color-mix(in srgb,var(--primary-color,#03a9f4) 50%,transparent)}' +
+        ':host([checked]) .thumb{left:16px;background:var(--primary-color,#03a9f4)}' +
+        '</style><span class="track"><span class="thumb"></span></span>';
+      this.addEventListener("click", () => {
+        if (this._disabled) return;
+        this.checked = !this._checked;
+        this.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+      });
+    }
+    get checked() { return this._checked; }
+    set checked(value) {
+      this._checked = !!value;
+      this.toggleAttribute("checked", this._checked);
+    }
+    get disabled() { return this._disabled; }
+    set disabled(value) {
+      this._disabled = !!value;
+      this.toggleAttribute("disabled", this._disabled);
+    }
+  }
+  customElements.define("ha-switch", HaSwitch);
+})();
+</script>
+
+<script src="../docker-card.js"></script>
+
+<script>
+(async function () {
+  "use strict";
+
+  if (!customElements.get("docker-card")) {
+    document.getElementById("banner").style.display = "block";
+    document.getElementById("score").textContent = "not run";
+    document.getElementById("score").className = "bad";
+    return;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * assertion helpers
+   * ------------------------------------------------------------------ */
+  var results = [];
+  var group = "";
+  var section = function (name) { group = name; };
+  var ok = function (name, pass, detail) {
+    results.push({ group: group, name: name, pass: !!pass, detail: detail == null ? "" : String(detail) });
+  };
+  var eq = function (name, actual, expected) {
+    ok(name, Object.is(actual, expected),
+       "got=" + JSON.stringify(actual) + " want=" + JSON.stringify(expected));
+  };
+  var settle = function () { return new Promise(function (r) { setTimeout(r, 0); }); };
+
+  /* ------------------------------------------------------------------ *
+   * Home Assistant frontend logic, transcribed from source so the card
+   * is checked against how HA actually resolves it.
+   *   src/data/lovelace_custom_cards.ts
+   *   src/panels/lovelace/create-element/create-element-base.ts
+   *   src/panels/lovelace/editor/card-editor/hui-card-picker.ts
+   * ------------------------------------------------------------------ */
+  var CUSTOM_PREFIX = "custom:";
+  var isCustomType = function (t) { return t.indexOf(CUSTOM_PREFIX) === 0; };
+  var getCustomTag = function (t) { return isCustomType(t) ? t.slice(CUSTOM_PREFIX.length) : undefined; };
+  var resolveCardClass = function (type) {
+    var tag = getCustomTag(type);
+    if (!tag) return { status: "not-custom" };
+    if (customElements.get(tag)) return { status: "resolved", tag: tag };
+    if (tag.indexOf("-") === -1) return { status: "throw", error: "Custom element not found: " + tag };
+    return { status: "timeout-2s", error: "Custom element not found: " + tag };
+  };
+  var pickerType = function (entry) { return CUSTOM_PREFIX + entry.type; };
+
+  /* ------------------------------------------------------------------ *
+   * fake hass
+   * ------------------------------------------------------------------ */
+  var mk = function (id, state, attrs) {
+    return { entity_id: id, state: state, attributes: attrs || {} };
+  };
+  var baseStates = function () {
+    return {
+      "sensor.docker_containers_total": mk("sensor.docker_containers_total", "6"),
+      "sensor.docker_containers_running": mk("sensor.docker_containers_running", "4"),
+      "sensor.docker_containers_stopped": mk("sensor.docker_containers_stopped", "2"),
+      "sensor.docker_images": mk("sensor.docker_images", "23"),
+      "sensor.docker_version": mk("sensor.docker_version", "27.1.1"),
+      "sensor.host_os": mk("sensor.host_os", "Debian GNU/Linux"),
+      "sensor.host_os_version": mk("sensor.host_os_version", "12 (bookworm)"),
+      "binary_sensor.docker_daemon_status": mk("binary_sensor.docker_daemon_status", "on"),
+
+      "sensor.docker_homeassistant_status": mk("sensor.docker_homeassistant_status", "running",
+        { friendly_name: "Home Assistant status" }),
+      "switch.docker_homeassistant": mk("switch.docker_homeassistant", "on",
+        { friendly_name: "Docker Home Assistant" }),
+      "switch.docker_restart_homeassistant": mk("switch.docker_restart_homeassistant", "off"),
+      "sensor.docker_homeassistant_cpu": mk("sensor.docker_homeassistant_cpu", "12.345",
+        { unit_of_measurement: "%" }),
+      "sensor.docker_homeassistant_memory": mk("sensor.docker_homeassistant_memory", "38.5",
+        { unit_of_measurement: "%" }),
+
+      "sensor.docker_nodered_status": mk("sensor.docker_nodered_status", "exited"),
+      "switch.docker_nodered": mk("switch.docker_nodered", "off"),
+      "button.docker_restart_nodered": mk("button.docker_restart_nodered", "2026-01-01T00:00:00+00:00"),
+      "sensor.docker_nodered_cpu": mk("sensor.docker_nodered_cpu", "unavailable"),
+      "sensor.docker_nodered_memory": mk("sensor.docker_nodered_memory", "512", { unit_of_measurement: "MB" }),
+
+      "sensor.docker_frigate_status": mk("sensor.docker_frigate_status", "paused"),
+      "binary_sensor.docker_frigate_status": mk("binary_sensor.docker_frigate_status", "on"),
+      "script.frigate_diagnostics": mk("script.frigate_diagnostics", "off"),
+      "automation.docker_restart_frigate": mk("automation.docker_restart_frigate", "on"),
+
+      "sensor.unrelated_noise": mk("sensor.unrelated_noise", "17.4", { friendly_name: "Noise" })
+    };
+  };
+
+  var calls = [];
+  var makeHass = function (states, opts) {
+    opts = opts || {};
+    return {
+      states: states || baseStates(),
+      language: opts.language || "en",
+      callService: function (domain, service, data, target) {
+        calls.push({ domain: domain, service: service, data: data, target: target });
+        return opts.result || Promise.resolve();
+      }
+    };
+  };
+  var hass = makeHass();
+
+  var sandbox = document.createElement("div");
+  sandbox.style.cssText = "position:absolute;left:-99999px;top:0;width:520px";
+  document.body.appendChild(sandbox);
+
+  var make = function (config, withHass) {
+    var el = document.createElement("docker-card");
+    el.setConfig(config);
+    sandbox.appendChild(el);
+    if (withHass !== false) el.hass = withHass && withHass !== true ? withHass : hass;
+    return el;
+  };
+  var q = function (el, sel) { return el.shadowRoot.querySelector(sel); };
+  var qa = function (el, sel) { return [].slice.call(el.shadowRoot.querySelectorAll(sel)); };
+  var rows = function (el) { return qa(el, ".container-row"); };
+  var rowNamed = function (el, name) {
+    return rows(el).filter(function (r) {
+      return r.querySelector(".container-name").textContent === name;
+    })[0];
+  };
+  var textOf = function (node, sel) {
+    var found = node.querySelector(sel);
+    return found ? found.textContent : null;
+  };
+
+  var FULL_CONFIG = {
+    type: "custom:docker-card",
+    title: "Docker @ MyServer",
+    containers_expanded: true,
+    docker_overview: {
+      container_count: "sensor.docker_containers_total",
+      containers_running: "sensor.docker_containers_running",
+      containers_stopped: "sensor.docker_containers_stopped",
+      docker_version: "sensor.docker_version",
+      image_count: "sensor.docker_images",
+      operating_system: "sensor.host_os",
+      operating_system_version: "sensor.host_os_version",
+      status: "binary_sensor.docker_daemon_status"
+    },
+    containers: [
+      {
+        name: "Home Assistant",
+        status_entity: "sensor.docker_homeassistant_status",
+        control_entity: "switch.docker_homeassistant",
+        restart_entity: "switch.docker_restart_homeassistant",
+        cpu_entity: "sensor.docker_homeassistant_cpu",
+        memory_entity: "sensor.docker_homeassistant_memory"
+      },
+      {
+        name: "Node-RED",
+        status_entity: "sensor.docker_nodered_status",
+        control_entity: "switch.docker_nodered",
+        restart_entity: "button.docker_restart_nodered",
+        cpu_entity: "sensor.docker_nodered_cpu",
+        memory_entity: "sensor.docker_nodered_memory"
+      },
+      {
+        name: "Frigate",
+        status_entity: "sensor.docker_frigate_status"
+      }
+    ]
+  };
+  var clone = function (value) { return JSON.parse(JSON.stringify(value)); };
+
+  /* ================================================================== *
+   * 1. card registration
+   * ================================================================== */
+  section("1. Card registration");
+  var entries = window.customCards.filter(function (c) { return c.type === "docker-card"; });
+  eq("registered exactly once", entries.length, 1);
+  eq("registry type carries no custom: prefix", entries[0].type, "docker-card");
+  eq("picker builds the type HA expects", pickerType(entries[0]), "custom:docker-card");
+  eq("card class resolves synchronously — no spinner",
+     resolveCardClass(pickerType(entries[0])).status, "resolved");
+  eq("dashboard yaml type also resolves", resolveCardClass("custom:docker-card").status, "resolved");
+  ok("registry entry carries a name and description",
+     !!entries[0].name && !!entries[0].description);
+  eq("card source file exposes no globals beyond customCards", typeof window.DockerCard, "undefined");
+
+  /* ================================================================== *
+   * 2. config handling
+   * ================================================================== */
+  section("2. Config handling");
+  var throws = function (cfg) {
+    try { document.createElement("docker-card").setConfig(cfg); return false; }
+    catch (e) { return true; }
+  };
+  eq("missing config throws", throws(undefined), true);
+  eq("null config throws", throws(null), true);
+  eq("an empty config is tolerated (renders a placeholder)", throws({ type: "custom:docker-card" }), false);
+
+  var listCard = make(clone(FULL_CONFIG));
+  eq("array of containers parsed", listCard.config.containers.length, 3);
+
+  var singleCard = make({
+    type: "custom:docker-card",
+    containers_expanded: true,
+    containers: { name: "Solo", status_entity: "sensor.docker_homeassistant_status" }
+  });
+  eq("a single container object is accepted", singleCard.config.containers.length, 1);
+  eq("…and renders one row", rows(singleCard).length, 1);
+  eq("…with its configured name", textOf(rows(singleCard)[0], ".container-name"), "Solo");
+
+  var singularKey = make({
+    type: "custom:docker-card",
+    containers_expanded: true,
+    container: [{ name: "Legacy key", status_entity: "sensor.docker_homeassistant_status" }]
+  });
+  eq("the singular `container:` key still works", rows(singularKey).length, 1);
+
+  var mapCard = make({
+    type: "custom:docker-card",
+    containers_expanded: true,
+    containers: {
+      web: { name: "Web", status_entity: "sensor.docker_homeassistant_status" },
+      db: { name: "DB", status_entity: "sensor.docker_nodered_status" }
+    }
+  });
+  eq("a map of containers is accepted", rows(mapCard).length, 2);
+
+  var legacyColor = make({
+    type: "custom:docker-card",
+    stopped_color: "#123456",
+    containers: [{ name: "x", status_entity: "sensor.docker_nodered_status", stopped_color: "#654321" }]
+  });
+  eq("legacy stopped_color maps to not_running_color", legacyColor.config.not_running_color, "#123456");
+  eq("per-container stopped_color maps too",
+     legacyColor.config.containers[0].not_running_color, "#654321");
+
+  var upper = make({
+    type: "custom:docker-card",
+    containers_expanded: true,
+    running_states: ["UP"],
+    containers: [{ name: "Case", status_entity: "sensor.docker_homeassistant_status", running_states: ["Running"] }]
+  });
+  eq("custom running_states are matched case-insensitively",
+     textOf(rowNamed(upper, "Case"), ".container-status"), "Running");
+  eq("global running_states are lower-cased too", upper.config.running_states.join(","), "up");
+
+  eq("config objects are copied, not held by reference", (function () {
+    var source = { type: "custom:docker-card", containers: [{ name: "A", status_entity: "sensor.x" }] };
+    var el = make(source);
+    source.containers[0].name = "mutated";
+    return el.config.containers[0].name;
+  })(), "A");
+
+  var emptyList = make({ type: "custom:docker-card", containers: [], containers_expanded: true });
+  eq("an empty container list renders the placeholder hint", !!q(emptyList, ".empty-hint"), true);
+  eq("…and no phantom row", rows(emptyList).length, 0);
+  eq("an unparseable container entry is dropped", (function () {
+    return make({ type: "custom:docker-card", containers: ["sensor.not_an_object"], containers_expanded: true })
+      .config.containers.length;
+  })(), 0);
+
+  /* ================================================================== *
+   * 3. header and overall status
+   * ================================================================== */
+  section("3. Header and status pill");
+  eq("ha-card rendered", !!q(listCard, "ha-card"), true);
+  eq("title from config", textOf(listCard.shadowRoot, ".title"), "Docker @ MyServer");
+  eq("default title when none is configured",
+     textOf(make({ type: "custom:docker-card", containers: [] }).shadowRoot, ".title"), "Docker Card");
+  eq("daemon 'on' reads Online", textOf(listCard.shadowRoot, ".status-pill"), "Online");
+  eq("…with the running class", q(listCard, ".status-pill").classList.contains("running"), true);
+  eq("the status pill opens more-info", q(listCard, ".status-pill").getAttribute("role"), "button");
+
+  var offStates = baseStates();
+  offStates["binary_sensor.docker_daemon_status"] = mk("binary_sensor.docker_daemon_status", "off");
+  var offCard = make(clone(FULL_CONFIG), makeHass(offStates));
+  eq("daemon 'off' reads Offline", textOf(offCard.shadowRoot, ".status-pill"), "Offline");
+  eq("…and is styled not-running", q(offCard, ".status-pill").classList.contains("not-running"), true);
+
+  var noStatus = clone(FULL_CONFIG);
+  delete noStatus.docker_overview.status;
+  var noStatusCard = make(noStatus);
+  eq("no status entity falls back to Unknown/idle",
+     textOf(noStatusCard.shadowRoot, ".status-pill"), "Unknown");
+  eq("…and is not clickable", q(noStatusCard, ".status-pill").hasAttribute("role"), false);
+
+  /* ================================================================== *
+   * 4. overview grid
+   * ================================================================== */
+  section("4. Overview grid");
+  var overviewLabels = function (el) {
+    return qa(el, ".overview-item").map(function (i) { return i.querySelector(".overview-label").textContent; });
+  };
+  var overviewValue = function (el, label) {
+    var item = qa(el, ".overview-item").filter(function (i) {
+      return i.querySelector(".overview-label").textContent === label;
+    })[0];
+    return item ? item.querySelector(".overview-value").textContent : null;
+  };
+  eq("four overview pills", qa(listCard, ".overview-item").length, 4);
+  eq("labels in order", overviewLabels(listCard).join(","), "Running / Total,Images,Docker,OS");
+  eq("running / total", overviewValue(listCard, "Running / Total"), "4 / 6");
+  eq("images", overviewValue(listCard, "Images"), "23");
+  eq("docker version", overviewValue(listCard, "Docker"), "27.1.1");
+  eq("os joins name and version", overviewValue(listCard, "OS"), "Debian GNU/Linux · 12 (bookworm)");
+  eq("a running/total mismatch is flagged not-running",
+     qa(listCard, ".overview-value")[0].classList.contains("not-running"), true);
+
+  var allRunning = baseStates();
+  allRunning["sensor.docker_containers_running"] = mk("sensor.docker_containers_running", "6");
+  eq("running === total is styled running",
+     qa(make(clone(FULL_CONFIG), makeHass(allRunning)), ".overview-value")[0].classList.contains("running"), true);
+
+  var noTotal = clone(FULL_CONFIG);
+  delete noTotal.docker_overview.container_count;
+  eq("containers_stopped fills in a missing total",
+     overviewValue(make(noTotal), "Running / Total"), "4 / 6");
+
+  var unknownStates = baseStates();
+  ["sensor.docker_images", "sensor.docker_version", "sensor.host_os", "sensor.host_os_version"]
+    .forEach(function (id) { unknownStates[id] = mk(id, "unavailable"); });
+  var sparse = make(clone(FULL_CONFIG), makeHass(unknownStates));
+  eq("unavailable overview entities are dropped, not shown as —",
+     overviewLabels(sparse).join(","), "Running / Total");
+  eq("no overview at all renders no grid",
+     !!q(make({ type: "custom:docker-card", containers: [] }), ".docker-overview"), false);
+  eq("only one of the two OS entities still renders", (function () {
+    var partial = baseStates();
+    partial["sensor.host_os_version"] = mk("sensor.host_os_version", "unknown");
+    return overviewValue(make(clone(FULL_CONFIG), makeHass(partial)), "OS");
+  })(), "Debian GNU/Linux");
+  eq("overview pills open more-info",
+     qa(listCard, ".overview-item.actionable").length, 4);
+
+  /* ================================================================== *
+   * 5. container rows
+   * ================================================================== */
+  section("5. Container rows");
+  eq("one row per container", rows(listCard).length, 3);
+  eq("names rendered", rows(listCard).map(function (r) {
+    return r.querySelector(".container-name").textContent;
+  }).join(","), "Home Assistant,Node-RED,Frigate");
+  eq("running container labelled Running",
+     textOf(rowNamed(listCard, "Home Assistant"), ".container-status"), "Running");
+  eq("'exited' counts as stopped",
+     textOf(rowNamed(listCard, "Node-RED"), ".container-status"), "Stopped");
+  eq("an unmapped state keeps its own label",
+     textOf(rowNamed(listCard, "Frigate"), ".container-status"), "Paused");
+  eq("running row carries the running class",
+     rowNamed(listCard, "Home Assistant").classList.contains("running"), true);
+  eq("stopped row carries the stopped class",
+     rowNamed(listCard, "Node-RED").classList.contains("stopped"), true);
+  eq("a paused row is transitional, not unknown",
+     rowNamed(listCard, "Frigate").classList.contains("transitional"), true);
+  eq("a state in no list at all is unknown", (function () {
+    var s = baseStates();
+    s["sensor.docker_frigate_status"] = mk("sensor.docker_frigate_status", "wedged");
+    return rowNamed(make(clone(FULL_CONFIG), makeHass(s)), "Frigate").classList.contains("unknown");
+  })(), true);
+  eq("name falls back to the entity's friendly name", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{ status_entity: "sensor.docker_homeassistant_status" }]
+    });
+    return textOf(rows(el)[0], ".container-name");
+  })(), "Home Assistant status");
+
+  eq("switch reflects a running container",
+     rowNamed(listCard, "Home Assistant").querySelector("ha-switch").checked, true);
+  eq("switch reflects a stopped container",
+     rowNamed(listCard, "Node-RED").querySelector("ha-switch").checked, false);
+  eq("no control entity disables the switch",
+     rowNamed(listCard, "Frigate").querySelector("ha-switch").disabled, true);
+  eq("a container with no actions gets no action button at all",
+     rowNamed(listCard, "Frigate").querySelector(".action-button"), null);
+  eq("a lone restart action gets its own button rather than a menu",
+     rowNamed(listCard, "Node-RED").querySelector(".restart-button").disabled, false);
+  eq("…and no overflow trigger beside it",
+     rowNamed(listCard, "Node-RED").querySelector(".overflow-trigger"), null);
+
+  /* ================================================================== *
+   * 6. CPU and memory
+   * ================================================================== */
+  section("6. CPU and memory usage");
+  var resourceText = function (el, name) {
+    var row = rowNamed(el, name);
+    var res = row.querySelector(".container-resources");
+    if (!res) return null;
+    return [].slice.call(res.querySelectorAll(".resource-item")).map(function (i) {
+      return i.querySelector(".resource-label").textContent + " " + i.querySelector(".resource-value").textContent;
+    }).join(" | ");
+  };
+  eq("cpu and memory rendered together",
+     resourceText(listCard, "Home Assistant"), "CPU: 12.3% | Memory: 38.5%");
+  eq("percentages get one decimal place", (function () {
+    var s = baseStates();
+    s["sensor.docker_homeassistant_cpu"] = mk("sensor.docker_homeassistant_cpu", "7", { unit_of_measurement: "%" });
+    return resourceText(make(clone(FULL_CONFIG), makeHass(s)), "Home Assistant").split(" | ")[0];
+  })(), "CPU: 7.0%");
+  eq("an entity with no unit is assumed to be a percentage", (function () {
+    var s = baseStates();
+    s["sensor.docker_homeassistant_cpu"] = mk("sensor.docker_homeassistant_cpu", "3.14159");
+    return resourceText(make(clone(FULL_CONFIG), makeHass(s)), "Home Assistant").split(" | ")[0];
+  })(), "CPU: 3.1%");
+  eq("a non-percent unit is kept as-is (MB, MiB, …)",
+     resourceText(listCard, "Node-RED"), "Memory: 512 MB");
+  eq("an unavailable resource entity is skipped, not shown as NaN",
+     resourceText(listCard, "Node-RED").indexOf("CPU"), -1);
+  eq("no resource entities means no resource line", resourceText(listCard, "Frigate"), null);
+  eq("a non-numeric state is skipped", (function () {
+    var s = baseStates();
+    s["sensor.docker_homeassistant_cpu"] = mk("sensor.docker_homeassistant_cpu", "idle");
+    s["sensor.docker_homeassistant_memory"] = mk("sensor.docker_homeassistant_memory", "unknown");
+    return resourceText(make(clone(FULL_CONFIG), makeHass(s)), "Home Assistant");
+  })(), null);
+  eq("large non-percent values lose the decimal", (function () {
+    var s = baseStates();
+    s["sensor.docker_nodered_memory"] = mk("sensor.docker_nodered_memory", "1536.44", { unit_of_measurement: "MiB" });
+    return resourceText(make(clone(FULL_CONFIG), makeHass(s)), "Node-RED");
+  })(), "Memory: 1536 MiB");
+
+  /* ================================================================== *
+   * 7. start / stop
+   * ================================================================== */
+  section("7. Start and stop");
+  calls = [];
+  var toggleCard = make(clone(FULL_CONFIG));
+  rowNamed(toggleCard, "Node-RED").querySelector("ha-switch").click();
+  await settle();
+  eq("starting a container calls turn_on on the control entity",
+     JSON.stringify(calls), JSON.stringify([{ domain: "switch", service: "turn_on",
+       data: { entity_id: "switch.docker_nodered" } }]));
+
+  calls = [];
+  rowNamed(toggleCard, "Home Assistant").querySelector("ha-switch").click();
+  await settle();
+  eq("stopping a container calls turn_off", calls[0] && calls[0].service, "turn_off");
+  eq("…on the right entity", calls[0] && calls[0].data.entity_id, "switch.docker_homeassistant");
+
+  calls = [];
+  var svcCard = make({
+    type: "custom:docker-card", containers_expanded: true,
+    containers: [{
+      name: "Scripted",
+      status_entity: "sensor.docker_nodered_status",
+      start_service: "script.docker_start_nodered",
+      stop_service: { domain: "shell_command", service: "docker_stop_nodered", data: { foo: "bar" } }
+    }]
+  });
+  var scriptedSwitch = function () { return rowNamed(svcCard, "Scripted").querySelector("ha-switch"); };
+  eq("start_service/stop_service enable the switch", scriptedSwitch().disabled, false);
+  scriptedSwitch().click();
+  await settle();
+  eq("start_service string is split into domain.service",
+     calls[0] && calls[0].domain + "." + calls[0].service, "script.docker_start_nodered");
+  eq("the row is re-rendered with a live switch after the call settles",
+     scriptedSwitch().disabled, false);
+  calls = [];
+  scriptedSwitch().checked = true;
+  scriptedSwitch().click();
+  await settle();
+  eq("stop_service object form is passed through",
+     calls[0] && JSON.stringify(calls[0].data), JSON.stringify({ foo: "bar" }));
+
+  eq("input_boolean is a supported control domain", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{ name: "b", control_entity: "input_boolean.x" }]
+    });
+    return rows(el)[0].querySelector("ha-switch").disabled;
+  })(), false);
+  eq("a read-only binary_sensor cannot be used as a control", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{ name: "b", control_entity: "binary_sensor.docker_frigate_status" }]
+    });
+    return rows(el)[0].querySelector("ha-switch").disabled;
+  })(), true);
+  eq("switch_entity is still honoured as a legacy alias", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{ name: "legacy", switch_entity: "switch.docker_nodered" }]
+    });
+    return rows(el)[0].querySelector("ha-switch").disabled;
+  })(), false);
+
+  /* pending state: the call is held open */
+  calls = [];
+  var release;
+  var held = new Promise(function (resolve) { release = resolve; });
+  var slowCard = make(clone(FULL_CONFIG), makeHass(baseStates(), { result: held }));
+  rowNamed(slowCard, "Node-RED").querySelector("ha-switch").click();
+  await settle();
+  var pendingRow = rowNamed(slowCard, "Node-RED");
+  eq("an in-flight row is marked pending", pendingRow.classList.contains("pending"), true);
+  eq("the switch holds the position the user asked for",
+     pendingRow.querySelector("ha-switch").checked, true);
+  eq("the switch is disabled while pending", pendingRow.querySelector("ha-switch").disabled, true);
+  eq("the restart button is disabled while pending",
+     pendingRow.querySelector(".restart-button").disabled, true);
+  release();
+  await settle();
+  eq("pending clears when the call resolves",
+     rowNamed(slowCard, "Node-RED").classList.contains("pending"), false);
+  eq("the switch falls back to the entity state once settled",
+     rowNamed(slowCard, "Node-RED").querySelector("ha-switch").checked, false);
+
+  /* failure path */
+  var failCard = make(clone(FULL_CONFIG), makeHass(baseStates(), { result: Promise.reject(new Error("boom")) }));
+  var notes = [];
+  failCard.addEventListener("hass-notification", function (e) { notes.push(e.detail.message); });
+  rowNamed(failCard, "Node-RED").querySelector("ha-switch").click();
+  await settle();
+  await settle();
+  eq("a failed start notifies the user", notes[0], "Failed to start Node-RED. Check logs.");
+  eq("…and the switch returns to the real state",
+     rowNamed(failCard, "Node-RED").querySelector("ha-switch").checked, false);
+  eq("…and the row is no longer pending",
+     rowNamed(failCard, "Node-RED").classList.contains("pending"), false);
+
+  /* ================================================================== *
+   * 8. restart
+   * ================================================================== */
+  section("8. Restart");
+  var restartWith = async function (container) {
+    calls = [];
+    var el = make({ type: "custom:docker-card", containers_expanded: true,
+                    containers: [Object.assign({ name: "R" }, container)] });
+    var btn = rows(el)[0].querySelector(".restart-button");
+    if (!btn || btn.disabled) return "disabled";
+    btn.click();
+    await settle();
+    return calls.length ? calls[0].domain + "." + calls[0].service + " " + JSON.stringify(calls[0].data) : "none";
+  };
+  eq("button entity → button.press",
+     await restartWith({ restart_entity: "button.docker_restart_nodered" }),
+     'button.press {"entity_id":"button.docker_restart_nodered"}');
+  eq("switch entity → switch.turn_on",
+     await restartWith({ restart_entity: "switch.docker_restart_homeassistant" }),
+     'switch.turn_on {"entity_id":"switch.docker_restart_homeassistant"}');
+  eq("script entity → script.turn_on",
+     await restartWith({ restart_entity: "script.frigate_diagnostics" }),
+     'script.turn_on {"entity_id":"script.frigate_diagnostics"}');
+  eq("automation entity → automation.trigger",
+     await restartWith({ restart_entity: "automation.docker_restart_frigate" }),
+     'automation.trigger {"entity_id":"automation.docker_restart_frigate"}');
+  eq("restart_service string form",
+     await restartWith({ restart_service: "shell_command.docker_restart_nodered" }),
+     "shell_command.docker_restart_nodered {}");
+  eq("restart_service object form carries entity_id",
+     await restartWith({ restart_service: { domain: "script", service: "turn_on", entity_id: "script.x" } }),
+     'script.turn_on {"entity_id":"script.x"}');
+  eq("an unsupported restart domain disables the button",
+     await restartWith({ restart_entity: "sensor.docker_nodered_status" }), "disabled");
+  eq("nothing configured disables the button", await restartWith({}), "disabled");
+
+  /* ================================================================== *
+   * 9. collapse and expand
+   * ================================================================== */
+  section("9. Collapse and expand");
+  var collapsed = make(Object.assign(clone(FULL_CONFIG), { containers_expanded: false }));
+  eq("containers_expanded:false starts collapsed",
+     q(collapsed, ".container-section").classList.contains("collapsed"), true);
+  eq("collapsed is the default", (function () {
+    var cfg = clone(FULL_CONFIG);
+    delete cfg.containers_expanded;
+    return q(make(cfg), ".container-section").classList.contains("collapsed");
+  })(), true);
+  eq("aria-expanded reflects the collapsed state",
+     q(collapsed, ".section-header").getAttribute("aria-expanded"), "false");
+  eq("the list is hidden from assistive tech while collapsed",
+     q(collapsed, ".container-list").hidden, true);
+  eq("the header controls the list by id",
+     q(collapsed, ".section-header").getAttribute("aria-controls"), q(collapsed, ".container-list").id);
+  ok("the list id is unique per card",
+     q(collapsed, ".container-list").id !== q(listCard, ".container-list").id);
+  eq("rows still exist while collapsed (CSS hides them)", rows(collapsed).length, 3);
+  q(collapsed, ".section-header").click();
+  eq("clicking the header expands",
+     q(collapsed, ".container-section").classList.contains("collapsed"), false);
+  eq("aria-expanded flips", q(collapsed, ".section-header").getAttribute("aria-expanded"), "true");
+  eq("aria-label flips too",
+     q(collapsed, ".section-header").getAttribute("aria-label"), "Collapse container list");
+  q(collapsed, ".section-header").click();
+  eq("clicking again collapses",
+     q(collapsed, ".container-section").classList.contains("collapsed"), true);
+  eq("getCardSize is smaller when collapsed", collapsed.getCardSize() < listCard.getCardSize(), true);
+
+  /* ================================================================== *
+   * 10. tap and hold actions
+   * ================================================================== */
+  section("10. Tap and hold actions");
+  var withAction = function (action, extra) {
+    return make(Object.assign({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [Object.assign({
+        name: "Act", status_entity: "sensor.docker_homeassistant_status",
+        control_entity: "switch.docker_homeassistant",
+        restart_entity: "switch.docker_restart_homeassistant", tap_action: action
+      }, extra || {})]
+    }));
+  };
+  var moreInfo = [];
+  window.addEventListener("hass-more-info", function (e) { moreInfo.push(e.detail.entityId); });
+
+  moreInfo = [];
+  rows(withAction({ action: "more-info" }))[0].click();
+  eq("more-info defaults to the status entity", moreInfo[0], "sensor.docker_homeassistant_status");
+  moreInfo = [];
+  rows(withAction({ action: "more-info", entity: "sensor.docker_images" }))[0].click();
+  eq("more-info honours an explicit entity", moreInfo[0], "sensor.docker_images");
+
+  calls = [];
+  rows(withAction({ action: "toggle" }))[0].click();
+  eq("toggle calls homeassistant.toggle",
+     calls[0] && calls[0].domain + "." + calls[0].service, "homeassistant.toggle");
+  eq("…on the control entity", calls[0] && calls[0].data.entity_id, "switch.docker_homeassistant");
+
+  calls = [];
+  rows(withAction({ action: "call-service", service: "script.diagnostics", data: { a: 1 } }))[0].click();
+  eq("call-service splits the service string",
+     calls[0] && calls[0].domain + "." + calls[0].service, "script.diagnostics");
+  eq("…and keeps the payload", calls[0] && calls[0].data.a, 1);
+
+  var navs = [];
+  window.addEventListener("navigate", function (e) { navs.push(e.detail.path); });
+  rows(withAction({ action: "navigate", navigation_path: "/lovelace/docker" }))[0].click();
+  eq("navigate fires the navigate event", navs[0], "/lovelace/docker");
+
+  var custom = [];
+  window.addEventListener("ll-custom", function (e) { custom.push(e.detail); });
+  rows(withAction({ action: "fire-dom-event", event_data: { k: "v" } }))[0].click();
+  eq("fire-dom-event emits ll-custom", custom.length && custom[0].k, "v");
+
+  var opened = [];
+  var realOpen = window.open;
+  window.open = function (url, target, features) { opened.push([url, target, features]); return null; };
+  rows(withAction({ action: "url", url_path: "https://example.invalid/c" }))[0].click();
+  window.open = realOpen;
+  eq("url opens in a new tab", opened[0] && opened[0][1], "_blank");
+  eq("…with noreferrer", opened[0] && opened[0][2], "noreferrer");
+
+  moreInfo = [];
+  var noAction = make({
+    type: "custom:docker-card", containers_expanded: true,
+    containers: [{ name: "Plain", status_entity: "sensor.docker_homeassistant_status" }]
+  });
+  eq("a row with no actions is not a button", rows(noAction)[0].hasAttribute("role"), false);
+  rows(noAction)[0].click();
+  eq("…and clicking it does nothing", moreInfo.length, 0);
+  eq("action: none is treated as no action",
+     rows(withAction({ action: "none" }))[0].hasAttribute("role"), false);
+
+  moreInfo = [];
+  var actionable = withAction({ action: "more-info" });
+  rows(actionable)[0].querySelector(".restart-button").click();
+  rows(actionable)[0].querySelector("ha-switch").click();
+  await settle();
+  eq("clicks on the controls do not also fire the row action", moreInfo.length, 0);
+
+  moreInfo = [];
+  rows(actionable)[0].dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  eq("Enter triggers the tap action", moreInfo.length, 1);
+  moreInfo = [];
+  rows(actionable)[0].dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+  eq("Tab does not", moreInfo.length, 0);
+
+  moreInfo = [];
+  var holdCard = withAction({ action: "more-info" }, { hold_action: { action: "url", url_path: "https://x.invalid" }, hold_delay: 20 });
+  var holdRow = rows(holdCard)[0];
+  opened = [];
+  window.open = function (url) { opened.push(url); return null; };
+  holdRow.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+  await new Promise(function (r) { setTimeout(r, 40); });
+  holdRow.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+  holdRow.click();
+  window.open = realOpen;
+  eq("a long press fires the hold action", opened.length, 1);
+  eq("…and suppresses the tap action that follows", moreInfo.length, 0);
+
+  /* ================================================================== *
+   * 11. re-render behaviour
+   * ================================================================== */
+  section("11. Re-render behaviour");
+  var churnStates = baseStates();
+  var churn = make(clone(FULL_CONFIG), makeHass(churnStates));
+  var rowBefore = rows(churn)[0];
+  var cardBefore = q(churn, "ha-card");
+
+  churnStates["sensor.unrelated_noise"] = mk("sensor.unrelated_noise", "18.9", { friendly_name: "Noise" });
+  churn.hass = makeHass(Object.assign({}, churnStates));
+  eq("an unrelated state change does not rebuild the rows", rows(churn)[0] === rowBefore, true);
+  eq("…and does not replace the card", q(churn, "ha-card") === cardBefore, true);
+
+  churnStates["sensor.docker_homeassistant_status"] = mk("sensor.docker_homeassistant_status", "exited",
+    { friendly_name: "Home Assistant status" });
+  churn.hass = makeHass(Object.assign({}, churnStates));
+  eq("a tracked state change does rebuild", rows(churn)[0] !== rowBefore, true);
+  eq("…and the new state is shown",
+     textOf(rowNamed(churn, "Home Assistant"), ".container-status"), "Stopped");
+  eq("…while the ha-card element is still reused", q(churn, "ha-card") === cardBefore, true);
+
+  churnStates["sensor.docker_homeassistant_cpu"] = mk("sensor.docker_homeassistant_cpu", "55.5",
+    { unit_of_measurement: "%" });
+  churn.hass = makeHass(Object.assign({}, churnStates));
+  eq("resource entities are tracked as well",
+     resourceText(churn, "Home Assistant").split(" | ")[0], "CPU: 55.5%");
+
+  churnStates["sensor.docker_containers_running"] = mk("sensor.docker_containers_running", "5");
+  churn.hass = makeHass(Object.assign({}, churnStates));
+  eq("overview entities are tracked", overviewValue(churn, "Running / Total"), "5 / 6");
+
+  eq("a same-object hass push is a no-op", (function () {
+    var before = rows(churn)[0];
+    churn.hass = churn.hass;
+    return rows(churn)[0] === before;
+  })(), true);
+
+  eq("only one stylesheet no matter how many pushes",
+     churn.shadowRoot.querySelectorAll("style").length, 1);
+  eq("exactly one ha-card in the shadow root",
+     churn.shadowRoot.querySelectorAll("ha-card").length, 1);
+
+  eq("hass before setConfig is safe", (function () {
+    try {
+      var el = document.createElement("docker-card");
+      el.hass = hass;
+      el.setConfig(clone(FULL_CONFIG));
+      sandbox.appendChild(el);
+      el.hass = hass;
+      return rows(el).length === 3;
+    } catch (e) { return String(e); }
+  })(), true);
+  eq("a card with no hass shows the waiting placeholder",
+     textOf(make(clone(FULL_CONFIG), false).shadowRoot, ".placeholder"), "Waiting for Home Assistant…");
+
+  /* ================================================================== *
+   * 12. reconfiguration (dashboard editor)
+   * ================================================================== */
+  section("12. Reconfiguration");
+  var recfg = make(clone(FULL_CONFIG));
+  recfg.setConfig({
+    type: "custom:docker-card", title: "Renamed", containers_expanded: true,
+    containers: [{ name: "Only one", status_entity: "sensor.docker_nodered_status" }]
+  });
+  recfg.hass = hass;
+  eq("title updated", textOf(recfg.shadowRoot, ".title"), "Renamed");
+  eq("rows re-built from the new config", rows(recfg).length, 1);
+  eq("stale overview pills are gone", qa(recfg, ".overview-item").length, 0);
+  eq("still exactly one ha-card", recfg.shadowRoot.querySelectorAll("ha-card").length, 1);
+  eq("still exactly one stylesheet", recfg.shadowRoot.querySelectorAll("style").length, 1);
+  eq("tracked entities are recomputed after reconfig", (function () {
+    var before = rows(recfg)[0];
+    var s = baseStates();
+    s["sensor.docker_nodered_status"] = mk("sensor.docker_nodered_status", "running");
+    recfg.hass = makeHass(s);
+    return textOf(rows(recfg)[0], ".container-status") === "Running" && rows(recfg)[0] !== before;
+  })(), true);
+  eq("listeners are not duplicated after reconfig", (function () {
+    calls = [];
+    recfg.setConfig({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{ name: "One", status_entity: "sensor.docker_nodered_status",
+                     control_entity: "switch.docker_nodered" }]
+    });
+    recfg.hass = hass;
+    rows(recfg)[0].querySelector("ha-switch").click();
+    return calls.length;
+  })(), 1);
+  await settle();
+
+  /* ================================================================== *
+   * 13. escaping
+   * ================================================================== */
+  section("13. Escaping");
+  var xssTitle = '<img src=x onerror="window.__t=1">';
+  var xssName = '<img src=x onerror="window.__n=1">';
+  var xss = make({
+    type: "custom:docker-card", title: xssTitle, containers_expanded: true,
+    containers: [{ name: xssName, status_entity: "sensor.docker_homeassistant_status" }]
+  });
+  eq("title not parsed as HTML", xss.shadowRoot.querySelectorAll("img").length, 0);
+  eq("title rendered as text", textOf(xss.shadowRoot, ".title"), xssTitle);
+  eq("container name escaped", textOf(xss.shadowRoot, ".container-name"), xssName);
+  eq("no injected script ran", window.__t === undefined && window.__n === undefined, true);
+  eq("a hostile state string is escaped too", (function () {
+    var s = baseStates();
+    s["sensor.docker_homeassistant_status"] = mk("sensor.docker_homeassistant_status", '<b>pwn</b>');
+    var el = make(clone(FULL_CONFIG), makeHass(s));
+    return el.shadowRoot.querySelectorAll("b").length;
+  })(), 0);
+  eq("rendered markup contains no control characters",
+     /[\x00-\x08\x0b-\x1f\x7f]/.test(listCard.shadowRoot.innerHTML), false);
+
+  /* ================================================================== *
+   * 14. translations
+   * ================================================================== */
+  section("14. Translations");
+  var realFetch = window.fetch;
+  var fetches = [];
+  window.fetch = function (url) {
+    fetches.push(String(url));
+    return Promise.resolve({ ok: false, status: 404, json: function () { return Promise.resolve({}); } });
+  };
+  var i18n = make(clone(FULL_CONFIG), makeHass(baseStates(), { language: "de" }));
+  await settle();
+  await settle();
+  eq("a non-English language looks for a translation file", fetches.length > 0, true);
+  ok("…at translations/<lang>.json",
+     fetches[0].indexOf("translations/de.json") !== -1, fetches[0]);
+  eq("English strings are used until it loads",
+     textOf(i18n.shadowRoot, ".status-pill"), "Online");
+  var afterFirst = fetches.length;
+  var s2 = baseStates();
+  s2["sensor.docker_homeassistant_status"] = mk("sensor.docker_homeassistant_status", "exited");
+  i18n.hass = makeHass(s2, { language: "de" });
+  i18n.hass = makeHass(baseStates(), { language: "de" });
+  await settle();
+  eq("a missing translation file is not re-fetched on every render", fetches.length, afterFirst);
+  window.fetch = realFetch;
+
+  /* ================================================================== *
+   * 15. container icons
+   * ================================================================== */
+  section("15. Container icons");
+  var iconOf = function (row) {
+    var el = row.querySelector(".container-icon");
+    if (!el) return null;
+    return el.classList.contains("placeholder-icon") ? "(placeholder)" : el.getAttribute("icon");
+  };
+  var iconCard = function (cfg, states) {
+    return make(Object.assign({ type: "custom:docker-card", containers_expanded: true }, cfg),
+                states ? makeHass(states) : undefined);
+  };
+
+  eq("no icons by default", qa(listCard, ".container-icon").length, 0);
+
+  var oneIcon = iconCard({
+    containers: [
+      { name: "Calendar", icon: "mdi:calendar", status_entity: "sensor.docker_homeassistant_status" },
+      { name: "Plain", status_entity: "sensor.docker_nodered_status" }
+    ]
+  });
+  eq("a configured icon renders", iconOf(rowNamed(oneIcon, "Calendar")), "mdi:calendar");
+  eq("rows without one keep the alignment", iconOf(rowNamed(oneIcon, "Plain")), "(placeholder)");
+  eq("the icon sits before the name",
+     rowNamed(oneIcon, "Calendar").firstElementChild.classList.contains("container-icon"), true);
+
+  var customIconStates = baseStates();
+  customIconStates["sensor.docker_nodered_status"] = mk("sensor.docker_nodered_status", "exited",
+    { icon: "mdi:sitemap" });
+  eq("the status entity's own icon is used as a fallback",
+     iconOf(rows(iconCard({ containers: [{ name: "N", status_entity: "sensor.docker_nodered_status" }] },
+                          customIconStates))[0]), "mdi:sitemap");
+  eq("a configured icon still wins over the entity's",
+     iconOf(rows(iconCard({ containers: [{ name: "N", icon: "mdi:calendar",
+                                           status_entity: "sensor.docker_nodered_status" }] },
+                          customIconStates))[0]), "mdi:calendar");
+  eq("the control entity is checked too", (function () {
+    var s = baseStates();
+    s["switch.docker_nodered"] = mk("switch.docker_nodered", "off", { icon: "mdi:led-on" });
+    return iconOf(rows(iconCard({ containers: [{ name: "N", status_entity: "sensor.docker_nodered_status",
+                                                 control_entity: "switch.docker_nodered" }] }, s))[0]);
+  })(), "mdi:led-on");
+
+  var alwaysIcons = iconCard({
+    show_icons: true,
+    containers: [
+      { name: "Calendar", icon: "mdi:calendar", status_entity: "sensor.docker_homeassistant_status" },
+      { name: "Plain", status_entity: "sensor.docker_nodered_status" }
+    ]
+  });
+  eq("show_icons: true fills the gaps with a default", iconOf(rowNamed(alwaysIcons, "Plain")), "mdi:docker");
+  eq("…without overriding a configured one", iconOf(rowNamed(alwaysIcons, "Calendar")), "mdi:calendar");
+  eq("show_icons: false wins over a configured icon",
+     qa(iconCard({ show_icons: false,
+                   containers: [{ name: "C", icon: "mdi:calendar",
+                                  status_entity: "sensor.docker_homeassistant_status" }] }),
+        ".container-icon").length, 0);
+  eq("icon: none opts a single row out", (function () {
+    var el = iconCard({
+      show_icons: true,
+      containers: [
+        { name: "Calendar", icon: "mdi:calendar", status_entity: "sensor.docker_homeassistant_status" },
+        { name: "Bare", icon: "none", status_entity: "sensor.docker_nodered_status" }
+      ]
+    });
+    return iconOf(rowNamed(el, "Bare"));
+  })(), "(placeholder)");
+  eq("the icon inherits the row's running/stopped accent",
+     getComputedStyle(rowNamed(oneIcon, "Calendar").querySelector(".container-icon")).color !==
+     getComputedStyle(rowNamed(oneIcon, "Plain").querySelector(".container-icon")).color, true);
+
+  /* ================================================================== *
+   * 16. hiding the containers section
+   * ================================================================== */
+  section("16. Hiding the containers section");
+  var hasSection = function (el) { return !!q(el, ".container-section"); };
+  var overviewOnly = clone(FULL_CONFIG);
+  overviewOnly.containers = [];
+
+  eq("an empty list with an overview hides the section entirely", hasSection(make(overviewOnly)), false);
+  eq("…but the overview still renders", qa(make(overviewOnly), ".overview-item").length, 4);
+  eq("an empty list with nothing else keeps the hint", (function () {
+    var el = make({ type: "custom:docker-card", containers: [], containers_expanded: true });
+    return hasSection(el) && !!q(el, ".empty-hint");
+  })(), true);
+  eq("show_containers: true keeps the section even with an overview",
+     hasSection(make(Object.assign(clone(overviewOnly), { show_containers: true }))), true);
+  eq("show_containers: false hides it even when containers exist",
+     hasSection(make(Object.assign(clone(FULL_CONFIG), { show_containers: false }))), false);
+  eq("…and the overview is untouched",
+     qa(make(Object.assign(clone(FULL_CONFIG), { show_containers: false })), ".overview-item").length, 4);
+  eq("the string form is accepted",
+     hasSection(make(Object.assign(clone(FULL_CONFIG), { show_containers: "never" }))), false);
+  eq("an unknown value falls back to auto",
+     hasSection(make(Object.assign(clone(FULL_CONFIG), { show_containers: "sometimes" }))), true);
+  eq("a populated list is never hidden by auto", hasSection(listCard), true);
+  eq("getCardSize shrinks when the section is hidden",
+     make(Object.assign(clone(FULL_CONFIG), { show_containers: false })).getCardSize() < listCard.getCardSize(),
+     true);
+
+  /* ================================================================== *
+   * 17. extra entities
+   * ================================================================== */
+  section("17. Extra entities");
+  var extraStates = baseStates();
+  extraStates["sensor.docker_homeassistant_image"] = mk("sensor.docker_homeassistant_image",
+    "ghcr.io/home-assistant/home-assistant:2026.8.1", { friendly_name: "Home Assistant Image" });
+  extraStates["sensor.docker_homeassistant_health"] = mk("sensor.docker_homeassistant_health",
+    "healthy", { friendly_name: "Home Assistant Health" });
+  extraStates["sensor.docker_homeassistant_memory_limit"] = mk("sensor.docker_homeassistant_memory_limit",
+    "2048", { friendly_name: "Home Assistant Memory limit", unit_of_measurement: "MB" });
+  extraStates["sensor.docker_homeassistant_restarts"] = mk("sensor.docker_homeassistant_restarts", "3");
+  extraStates["sensor.docker_homeassistant_version"] = mk("sensor.docker_homeassistant_version",
+    "2026.8.1", { friendly_name: "Home Assistant Version" });
+  extraStates["sensor.docker_homeassistant_missing"] = mk("sensor.docker_homeassistant_missing", "unavailable");
+
+  var extrasCard = function (extras) {
+    return make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{
+        name: "Home Assistant",
+        status_entity: "sensor.docker_homeassistant_status",
+        cpu_entity: "sensor.docker_homeassistant_cpu",
+        memory_entity: "sensor.docker_homeassistant_memory",
+        extra_entities: extras
+      }]
+    }, makeHass(extraStates));
+  };
+  var resourcePairs = function (el) {
+    return qa(el, ".resource-item").map(function (i) {
+      var label = i.querySelector(".resource-label");
+      var icon = i.querySelector(".resource-icon");
+      return (label ? label.textContent : "[" + icon.getAttribute("icon") + "]") + " " +
+             i.querySelector(".resource-value").textContent;
+    });
+  };
+
+  eq("a string entry renders after cpu and memory",
+     resourcePairs(extrasCard(["sensor.docker_homeassistant_image"])).join(" | "),
+     "CPU: 12.3% | Memory: 38.5% | Image: ghcr.io/home-assistant/home-assistant:2026.8.1");
+  eq("the label drops the container name prefix",
+     resourcePairs(extrasCard(["sensor.docker_homeassistant_health"]))[2], "Health: healthy");
+  eq("an explicit name wins",
+     resourcePairs(extrasCard([{ entity: "sensor.docker_homeassistant_health", name: "Container health" }]))[2],
+     "Container health: healthy");
+  eq("no friendly name falls back to the entity id",
+     resourcePairs(extrasCard(["sensor.docker_homeassistant_restarts"]))[2], "Docker Homeassistant Restarts: 3");
+  eq("a numeric extra with a unit keeps it",
+     resourcePairs(extrasCard(["sensor.docker_homeassistant_memory_limit"]))[2], "Memory limit: 2048 MB");
+  eq("a numeric extra with no unit is not invented as a percentage",
+     resourcePairs(extrasCard(["sensor.docker_homeassistant_restarts"]))[2].indexOf("%"), -1);
+  eq("a version-like state is not truncated to a number",
+     resourcePairs(extrasCard(["sensor.docker_homeassistant_version"]))[2], "Version: 2026.8.1");
+  eq("an unavailable extra is skipped",
+     resourcePairs(extrasCard(["sensor.docker_homeassistant_missing"])).length, 2);
+  eq("an entity that does not exist is skipped",
+     resourcePairs(extrasCard(["sensor.nope"])).length, 2);
+  eq("a malformed entry is dropped at config time",
+     extrasCard([null, 42, { name: "no entity" }, "sensor.docker_homeassistant_health"])
+       .config.containers[0].extra_entities.length, 1);
+  eq("an icon replaces the text label",
+     resourcePairs(extrasCard([{ entity: "sensor.docker_homeassistant_health", icon: "mdi:heart-pulse" }]))[2],
+     "[mdi:heart-pulse] healthy");
+  eq("the full label survives in the title attribute", (function () {
+    var el = extrasCard([{ entity: "sensor.docker_homeassistant_health", icon: "mdi:heart-pulse" }]);
+    return qa(el, ".resource-item")[2].title;
+  })(), "Health: healthy");
+  eq("extras alone render a resource line without cpu/memory", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{ name: "Home Assistant", status_entity: "sensor.docker_homeassistant_status",
+                     extra_entities: ["sensor.docker_homeassistant_image"] }]
+    }, makeHass(extraStates));
+    return resourcePairs(el).length;
+  })(), 1);
+  eq("extras are tracked for re-render", (function () {
+    var states = Object.assign({}, extraStates);
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{ name: "Home Assistant", status_entity: "sensor.docker_homeassistant_status",
+                     extra_entities: ["sensor.docker_homeassistant_health"] }]
+    }, makeHass(Object.assign({}, states)));
+    states["sensor.docker_homeassistant_health"] = mk("sensor.docker_homeassistant_health", "unhealthy",
+      { friendly_name: "Home Assistant Health" });
+    el.hass = makeHass(Object.assign({}, states));
+    return resourcePairs(el)[0];
+  })(), "Health: unhealthy");
+  eq("a single extra given as a bare object is accepted",
+     resourcePairs(extrasCard({ entity: "sensor.docker_homeassistant_health" })).length, 3);
+
+  /* ================================================================== *
+   * 18. lifecycle actions
+   * ================================================================== */
+  section("18. Lifecycle actions");
+
+  var lifecycleStates = baseStates();
+  var LIFECYCLE = {
+    name: "Zigbee2MQTT",
+    status_entity: "sensor.z2m_state",
+    control_entity: "switch.z2m_container",
+    restart_entity: "button.z2m_restart",
+    pause_entity: "button.z2m_pause",
+    resume_entity: "button.z2m_resume",
+    kill_entity: "button.z2m_kill",
+    recreate_entity: "button.z2m_recreate",
+    update_entity: "update.z2m_image",
+    health_entity: "sensor.z2m_health"
+  };
+  var lifecycleHass = function (overrides) {
+    var s = Object.assign({}, lifecycleStates, {
+      "sensor.z2m_state": mk("sensor.z2m_state", "running"),
+      "switch.z2m_container": mk("switch.z2m_container", "on"),
+      "button.z2m_restart": mk("button.z2m_restart", "2026-01-01T00:00:00+00:00"),
+      "button.z2m_pause": mk("button.z2m_pause", "2026-01-01T00:00:00+00:00"),
+      "button.z2m_resume": mk("button.z2m_resume", "unavailable"),
+      "button.z2m_kill": mk("button.z2m_kill", "2026-01-01T00:00:00+00:00"),
+      "button.z2m_recreate": mk("button.z2m_recreate", "2026-01-01T00:00:00+00:00"),
+      "update.z2m_image": mk("update.z2m_image", "off", {}),
+      "sensor.z2m_health": mk("sensor.z2m_health", "healthy")
+    }, overrides || {});
+    return makeHass(s);
+  };
+  var lifecycleCard = function (extra, overrides) {
+    return make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [Object.assign({}, LIFECYCLE, extra || {})]
+    }, lifecycleHass(overrides));
+  };
+  var primaryOf = function (el) {
+    var btn = el.shadowRoot.querySelector(".actions .action-button:not(.overflow-trigger)");
+    return btn ? btn.dataset.action + (btn.disabled ? ":disabled" : "") : null;
+  };
+  var menuActions = function (el) {
+    return qa(el, ".menu-item").map(function (i) { return i.dataset.action; });
+  };
+  var openMenu = function (el) {
+    q(el, ".overflow-trigger").click();
+    return el;
+  };
+
+  var life = lifecycleCard();
+  eq("several actions collapse into one overflow button", primaryOf(life), null);
+  eq("…which is the only control beside the switch",
+     qa(life, ".actions .action-button").length, 1);
+  eq("the trigger carries an accessible label",
+     q(life, ".overflow-trigger").getAttribute("aria-label"), "More actions");
+  eq("the menu is closed until asked for", qa(life, ".menu-item").length, 0);
+
+  openMenu(life);
+  eq("unavailable actions are not offered (resume, while running)",
+     menuActions(life).indexOf("resume"), -1);
+  eq("an update that is not available is not offered", menuActions(life).indexOf("update"), -1);
+  eq("everything else is", menuActions(life).join(","), "restart,pause,recreate,kill");
+
+  var loneAction = make({
+    type: "custom:docker-card", containers_expanded: true,
+    containers: [{ name: "Solo", status_entity: "sensor.z2m_state", restart_entity: "button.z2m_restart" }]
+  }, lifecycleHass());
+  eq("a single action stays a direct button — a menu would cost the same space",
+     primaryOf(loneAction), "restart");
+  eq("…with no menu trigger", !!q(loneAction, ".overflow-trigger"), false);
+  eq("the button is an icon, not text",
+     q(loneAction, '.action-button[data-action="restart"]').textContent.trim(), "");
+  eq("…with an accessible label",
+     q(loneAction, '.action-button[data-action="restart"]').getAttribute("aria-label"), "Restart");
+  eq("…and a tooltip", q(loneAction, '.action-button[data-action="restart"]').title, "Restart");
+  eq("the legacy .restart-button class is preserved for card_mod users",
+     q(loneAction, '.action-button[data-action="restart"]').classList.contains("restart-button"), true);
+
+  eq("a paused container leads with resume when a primary is configured", (function () {
+    var el = lifecycleCard({ primary_action: "restart" }, {
+      "sensor.z2m_state": mk("sensor.z2m_state", "paused"),
+      "button.z2m_resume": mk("button.z2m_resume", "2026-01-01T00:00:00+00:00"),
+      "button.z2m_pause": mk("button.z2m_pause", "unavailable"),
+      "button.z2m_restart": mk("button.z2m_restart", "unavailable")
+    });
+    return primaryOf(el);
+  })(), "resume");
+  eq("primary_action overrides the default", primaryOf(lifecycleCard({ primary_action: "kill" })), "kill");
+  eq("primary_action: none keeps everything in the menu even when alone", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true, primary_action: "none",
+      containers: [{ name: "Solo", status_entity: "sensor.z2m_state", restart_entity: "button.z2m_restart" }]
+    }, lifecycleHass());
+    openMenu(el);
+    return (primaryOf(el) === null) + "/" + menuActions(el).join(",");
+  })(), "true/restart");
+  eq("an actions allow-list filters what is offered", (function () {
+    var el = lifecycleCard({ actions: ["restart", "kill"] });
+    openMenu(el);
+    return menuActions(el).join(",");
+  })(), "restart,kill");
+
+  var actionCall = async function (action, extra, overrides) {
+    calls = [];
+    var el = lifecycleCard(extra, overrides);
+    var direct = q(el, '.action-button[data-action="' + action + '"]');
+    if (!direct) {
+      openMenu(el);
+      var item = q(el, '.menu-item[data-action="' + action + '"]');
+      if (!item) return "not offered";
+      item.click();
+      if (item.classList.contains("destructive")) {
+        q(el, '.menu-item[data-action="' + action + '"]').click();
+      }
+    } else {
+      direct.click();
+    }
+    await settle();
+    return calls.length ? calls[0].domain + "." + calls[0].service + " " + JSON.stringify(calls[0].data) : "none";
+  };
+
+  eq("restart presses its button",
+     await actionCall("restart"), 'button.press {"entity_id":"button.z2m_restart"}');
+  eq("pause presses its button",
+     await actionCall("pause"), 'button.press {"entity_id":"button.z2m_pause"}');
+  eq("kill presses its button",
+     await actionCall("kill"), 'button.press {"entity_id":"button.z2m_kill"}');
+  eq("recreate presses its button",
+     await actionCall("recreate"), 'button.press {"entity_id":"button.z2m_recreate"}');
+  eq("resume presses its button when the container is paused",
+     await actionCall("resume", {}, {
+       "sensor.z2m_state": mk("sensor.z2m_state", "paused"),
+       "button.z2m_resume": mk("button.z2m_resume", "2026-01-01T00:00:00+00:00")
+     }), 'button.press {"entity_id":"button.z2m_resume"}');
+  eq("update installs through the update domain",
+     await actionCall("update", {}, { "update.z2m_image": mk("update.z2m_image", "on", {}) }),
+     'update.install {"entity_id":"update.z2m_image"}');
+  eq("a script entity works for any action",
+     await actionCall("pause", { pause_entity: "script.frigate_diagnostics" }),
+     'script.turn_on {"entity_id":"script.frigate_diagnostics"}');
+  eq("the <action>_service escape hatch works",
+     await actionCall("pause", { pause_entity: undefined, pause_service: "shell_command.pause_z2m" }),
+     "shell_command.pause_z2m {}");
+  eq("an unsupported entity domain means the action is not offered",
+     await actionCall("kill", { kill_entity: "sensor.z2m_state" }), "not offered");
+
+  /* ================================================================== *
+   * 19. overflow menu and confirmation
+   * ================================================================== */
+  section("19. Overflow menu and confirmation");
+  var menuCard = lifecycleCard();
+  eq("aria-haspopup is set", q(menuCard, ".overflow-trigger").getAttribute("aria-haspopup"), "menu");
+  eq("aria-expanded starts false", q(menuCard, ".overflow-trigger").getAttribute("aria-expanded"), "false");
+  openMenu(menuCard);
+  eq("aria-expanded flips when open", q(menuCard, ".overflow-trigger").getAttribute("aria-expanded"), "true");
+  eq("the menu has a menu role", q(menuCard, ".menu").getAttribute("role"), "menu");
+  eq("items are menuitems",
+     qa(menuCard, ".menu-item").every(function (i) { return i.getAttribute("role") === "menuitem"; }), true);
+  eq("the first item takes focus", menuCard.shadowRoot.activeElement.dataset.action, "restart");
+  menuCard.shadowRoot.activeElement.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  eq("arrow keys move focus", menuCard.shadowRoot.activeElement.dataset.action, "pause");
+  menuCard.shadowRoot.activeElement.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+  eq("…and back", menuCard.shadowRoot.activeElement.dataset.action, "restart");
+  menuCard.shadowRoot.activeElement.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+  eq("End jumps to the last item", menuCard.shadowRoot.activeElement.dataset.action, "kill");
+  menuCard.shadowRoot.activeElement.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  eq("Escape closes the menu", qa(menuCard, ".menu-item").length, 0);
+
+  openMenu(menuCard);
+  eq("clicking outside closes the menu", (function () {
+    document.body.click();
+    return qa(menuCard, ".menu-item").length;
+  })(), 0);
+  openMenu(menuCard);
+  eq("a second click on the trigger closes it", (function () {
+    q(menuCard, ".overflow-trigger").click();
+    return qa(menuCard, ".menu-item").length;
+  })(), 0);
+  eq("only one menu is open across rows", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [Object.assign({}, LIFECYCLE), Object.assign({}, LIFECYCLE, { name: "Second" })]
+    }, lifecycleHass());
+    qa(el, ".overflow-trigger")[0].click();
+    qa(el, ".overflow-trigger")[1].click();
+    return qa(el, ".menu").length;
+  })(), 1);
+
+  calls = [];
+  var confirmCard = lifecycleCard();
+  openMenu(confirmCard);
+  q(confirmCard, '.menu-item[data-action="kill"]').click();
+  eq("a destructive action arms rather than firing", calls.length, 0);
+  eq("…and says so", q(confirmCard, '.menu-item[data-action="kill"]').textContent.trim(), "Confirm Kill?");
+  eq("…and is marked armed",
+     q(confirmCard, '.menu-item[data-action="kill"]').classList.contains("armed"), true);
+  eq("a non-destructive action is not armed",
+     q(confirmCard, '.menu-item[data-action="pause"]').classList.contains("armed"), false);
+  q(confirmCard, '.menu-item[data-action="kill"]').click();
+  await settle();
+  eq("the second click fires it", calls.length, 1);
+  eq("…and closes the menu", qa(confirmCard, ".menu-item").length, 0);
+
+  calls = [];
+  var armSwap = lifecycleCard();
+  openMenu(armSwap);
+  q(armSwap, '.menu-item[data-action="kill"]').click();
+  q(armSwap, '.menu-item[data-action="recreate"]').click();
+  eq("arming another item disarms the first",
+     q(armSwap, '.menu-item[data-action="kill"]').classList.contains("armed"), false);
+  eq("…and nothing has run yet", calls.length, 0);
+
+  calls = [];
+  var noConfirm = lifecycleCard({}, undefined);
+  noConfirm.setConfig({
+    type: "custom:docker-card", containers_expanded: true, confirm_actions: [],
+    containers: [Object.assign({}, LIFECYCLE)]
+  });
+  noConfirm.hass = lifecycleHass();
+  openMenu(noConfirm);
+  q(noConfirm, '.menu-item[data-action="kill"]').click();
+  await settle();
+  eq("confirm_actions: [] fires on the first click", calls.length, 1);
+
+  /* ================================================================== *
+   * 20. image updates
+   * ================================================================== */
+  section("20. Image updates");
+  var DIGEST_OLD = "sha256:6f9c4d2b1a8e7c3f5d0b2a9e8c7d6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e";
+  var DIGEST_NEW = "sha256:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b";
+  var updateHass = function (attrs, state) {
+    return { "update.z2m_image": mk("update.z2m_image", state || "on", attrs || {
+      installed_version: DIGEST_OLD, latest_version: DIGEST_NEW
+    }) };
+  };
+  var upd = lifecycleCard({}, updateHass());
+  eq("an available update shows a badge", !!q(upd, ".update-badge"), true);
+  eq("the badge is short", q(upd, ".update-badge").textContent.trim(), "Update");
+  eq("no badge when there is nothing to install", !!q(lifecycleCard(), ".update-badge"), false);
+  eq("the raw digest never reaches the rendered text",
+     upd.shadowRoot.textContent.indexOf(DIGEST_NEW), -1);
+  eq("…but a truncated version lands in the tooltip",
+     q(upd, ".update-badge").title, "sha256:6f9c4… → sha256:1a2b3…");
+  eq("the badge opens more-info by default", (function () {
+    moreInfo = [];
+    q(upd, ".update-badge").click();
+    return moreInfo[0];
+  })(), "update.z2m_image");
+  eq("update_action: install acts from the badge instead", (function () {
+    calls = [];
+    var el = lifecycleCard({ update_action: "install" }, updateHass());
+    q(el, ".update-badge").click();
+    return calls.length && calls[0].domain + "." + calls[0].service;
+  })(), "update.install");
+  eq("update_action: none makes it a plain indicator",
+     q(lifecycleCard({ update_action: "none" }, updateHass()), ".update-badge").hasAttribute("role"), false);
+  eq("show_update_badge: false hides it", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true, show_update_badge: false,
+      containers: [Object.assign({}, LIFECYCLE)]
+    }, lifecycleHass(updateHass()));
+    return !!q(el, ".update-badge");
+  })(), false);
+  eq("the update action is offered while one is available", (function () {
+    var el = lifecycleCard({}, updateHass());
+    openMenu(el);
+    return menuActions(el).indexOf("update") !== -1;
+  })(), true);
+
+  var installing = lifecycleCard({}, updateHass({ in_progress: true }));
+  eq("an install in progress marks the row pending",
+     rows(installing)[0].classList.contains("pending"), true);
+  eq("…and says so instead of showing the state",
+     textOf(rows(installing)[0], ".container-status"), "Installing…");
+  eq("…and disables the controls", rows(installing)[0].querySelector("ha-switch").disabled, true);
+  eq("a percentage is shown when the entity reports one",
+     textOf(rows(lifecycleCard({}, updateHass({ in_progress: true, update_percentage: 42 })))[0],
+            ".container-status"), "Installing… 42%");
+  eq("progress is driven by the entity, not a timer", (function () {
+    var el = lifecycleCard({}, updateHass({ in_progress: true }));
+    el.hass = lifecycleHass(updateHass({ in_progress: false }));
+    return rows(el)[0].classList.contains("pending");
+  })(), false);
+
+  /* ================================================================== *
+   * 21. health badge
+   * ================================================================== */
+  section("21. Health badge");
+  eq("a healthy container shows a health badge",
+     textOf(rows(lifecycleCard())[0], ".health-badge"), "Healthy");
+  eq("the state drives the styling",
+     rows(lifecycleCard())[0].querySelector(".health-badge").classList.contains("health-healthy"), true);
+  eq("unhealthy is reported too", (function () {
+    var el = lifecycleCard({}, { "sensor.z2m_health": mk("sensor.z2m_health", "unhealthy") });
+    return textOf(rows(el)[0], ".health-badge") + "/" +
+           rows(el)[0].querySelector(".health-badge").classList.contains("health-unhealthy");
+  })(), "Unhealthy/true");
+  eq("an unknown health state is skipped", (function () {
+    var el = lifecycleCard({}, { "sensor.z2m_health": mk("sensor.z2m_health", "unknown") });
+    return !!q(el, ".health-badge");
+  })(), false);
+  eq("no health entity means no badge",
+     !!q(lifecycleCard({ health_entity: undefined }), ".health-badge"), false);
+  eq("an unrecognised health state is passed through", (function () {
+    var el = lifecycleCard({}, { "sensor.z2m_health": mk("sensor.z2m_health", "degraded") });
+    return textOf(rows(el)[0], ".health-badge");
+  })(), "degraded");
+  eq("the badge opens more-info", (function () {
+    moreInfo = [];
+    q(lifecycleCard(), ".health-badge").click();
+    return moreInfo[0];
+  })(), "sensor.z2m_health");
+
+  /* ================================================================== *
+   * 22. transitional states
+   * ================================================================== */
+  section("22. Transitional states");
+  var stateRow = function (state) {
+    var s = baseStates();
+    s["sensor.docker_frigate_status"] = mk("sensor.docker_frigate_status", state);
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{ name: "Frigate", status_entity: "sensor.docker_frigate_status",
+                     control_entity: "switch.docker_nodered" }]
+    }, makeHass(s));
+    var row = rows(el)[0];
+    return row.className.replace("container-row ", "") + "/" + row.querySelector("ha-switch").disabled;
+  };
+  eq("running", stateRow("running"), "running/false");
+  eq("exited is stopped", stateRow("exited"), "stopped/false");
+  eq("dead is stopped, not unknown", stateRow("dead"), "stopped/false");
+  eq("created is stopped", stateRow("created"), "stopped/false");
+  eq("paused is transitional but still stoppable", stateRow("paused"), "transitional/false");
+  eq("restarting is transitional and locks the switch", stateRow("restarting"), "transitional/true");
+  eq("removing locks the switch too", stateRow("removing"), "transitional/true");
+  eq("an unrecognised state stays unknown", stateRow("wedged"), "unknown/false");
+  eq("transitional_states is configurable", (function () {
+    var s = baseStates();
+    s["sensor.docker_frigate_status"] = mk("sensor.docker_frigate_status", "wedged");
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true, transitional_states: ["WEDGED"],
+      containers: [{ name: "F", status_entity: "sensor.docker_frigate_status" }]
+    }, makeHass(s));
+    return rows(el)[0].classList.contains("transitional");
+  })(), true);
+
+  /* ================================================================== *
+   * 23. host actions
+   * ================================================================== */
+  section("23. Host actions");
+  var hostStates = baseStates();
+  hostStates["button.local_prune_images"] = mk("button.local_prune_images", "2026-01-01T00:00:00+00:00");
+  hostStates["button.local_prune_volumes"] = mk("button.local_prune_volumes", "unavailable");
+  var hostConfig = clone(FULL_CONFIG);
+  hostConfig.docker_overview.prune_images = "button.local_prune_images";
+  hostConfig.docker_overview.prune_volumes = "button.local_prune_volumes";
+  var hostCard = make(hostConfig, makeHass(hostStates));
+
+  eq("a host actions trigger appears in the header", !!q(hostCard, ".header .overflow-trigger"), true);
+  q(hostCard, ".header .overflow-trigger").click();
+  eq("only available host actions are listed",
+     qa(hostCard, ".host-actions .menu-item").map(function (i) { return i.dataset.action; }).join(","),
+     "prune_images");
+  calls = [];
+  q(hostCard, '.menu-item[data-action="prune_images"]').click();
+  eq("pruning arms first", calls.length, 0);
+  q(hostCard, '.menu-item[data-action="prune_images"]').click();
+  await settle();
+  eq("…then presses the button",
+     calls[0] && calls[0].domain + "." + calls[0].service + " " + JSON.stringify(calls[0].data),
+     'button.press {"entity_id":"button.local_prune_images"}');
+  eq("no host entities means no trigger", !!q(listCard, ".header .overflow-trigger"), false);
+  eq("show_host_actions: false hides it",
+     !!q(make(Object.assign(clone(hostConfig), { show_host_actions: false }), makeHass(hostStates)),
+         ".header .overflow-trigger"), false);
+
+  /* ================================================================== *
+   * 24. auto-discovery
+   * ================================================================== */
+  section("24. Auto-discovery");
+
+  var dev = function (id, model, name, extra) {
+    return Object.assign({
+      id: id, name: name, name_by_user: null, model: model,
+      manufacturer: "Portainer", identifiers: [["portainer", id]],
+      via_device_id: null, area_id: null, configuration_url: null, disabled_by: null
+    }, extra || {});
+  };
+  var ent = function (entityId, deviceId, translationKey, extra) {
+    return Object.assign({
+      entity_id: entityId, device_id: deviceId, platform: "portainer",
+      translation_key: translationKey, labels: []
+    }, extra || {});
+  };
+
+  var discoveryDevices = {
+    "d-end": dev("d-end", "Endpoint", "Local"),
+    "d-stack": dev("d-stack", "Stack", "media", { via_device_id: "d-end" }),
+    "d-ha": dev("d-ha", "Container", "homeassistant", {
+      via_device_id: "d-end",
+      configuration_url: "https://portainer.local/#!/2/docker/containers/abc"
+    }),
+    "d-z2m": dev("d-z2m", "Container", "zigbee2mqtt", { via_device_id: "d-stack" }),
+    "d-de": dev("d-de", "Container", "paperless", { via_device_id: "d-end", area_id: "office" }),
+    "d-off": dev("d-off", "Container", "disabled-one", { via_device_id: "d-end", disabled_by: "user" }),
+    "d-other": Object.assign(dev("d-other", "Container", "not-portainer"),
+                             { identifiers: [["othervendor", "x"]] })
+  };
+  var discoveryEntities = {
+    /* endpoint */
+    "binary_sensor.local_status": ent("binary_sensor.local_status", "d-end", "status"),
+    "sensor.local_container_count": ent("sensor.local_container_count", "d-end", "containers_count"),
+    "sensor.local_containers_running": ent("sensor.local_containers_running", "d-end", "containers_running"),
+    "sensor.local_containers_stopped": ent("sensor.local_containers_stopped", "d-end", "containers_stopped"),
+    "sensor.local_image_count": ent("sensor.local_image_count", "d-end", "images_count"),
+    "sensor.local_docker_version": ent("sensor.local_docker_version", "d-end", "docker_version"),
+    "sensor.local_operating_system": ent("sensor.local_operating_system", "d-end", "operating_system"),
+    "sensor.local_os_version": ent("sensor.local_os_version", "d-end", "operating_system_version"),
+    "button.local_prune_unused_images": ent("button.local_prune_unused_images", "d-end", "images_prune"),
+    "button.local_prune_unused_volumes": ent("button.local_prune_unused_volumes", "d-end", "volumes_prune"),
+    /* home assistant container */
+    "sensor.homeassistant_state": ent("sensor.homeassistant_state", "d-ha", "container_state"),
+    "switch.homeassistant_container": ent("switch.homeassistant_container", "d-ha", "container"),
+    "button.homeassistant_restart_container": ent("button.homeassistant_restart_container", "d-ha", "restart_container"),
+    "button.homeassistant_kill_container": ent("button.homeassistant_kill_container", "d-ha", "kill_container"),
+    "update.homeassistant_image_update": ent("update.homeassistant_image_update", "d-ha", "container_image_update"),
+    "sensor.homeassistant_cpu": ent("sensor.homeassistant_cpu", "d-ha", "cpu_usage_total"),
+    "sensor.homeassistant_memory": ent("sensor.homeassistant_memory", "d-ha", "memory_usage"),
+    "sensor.homeassistant_memory_pct": ent("sensor.homeassistant_memory_pct", "d-ha", "memory_usage_percentage"),
+    "sensor.homeassistant_image": ent("sensor.homeassistant_image", "d-ha", "image"),
+    "sensor.homeassistant_health": ent("sensor.homeassistant_health", "d-ha", "container_health_state"),
+    "sensor.homeassistant_hidden": ent("sensor.homeassistant_hidden", "d-ha", "image", { hidden: true }),
+    /* the stack device itself */
+    "switch.media_stack": ent("switch.media_stack", "d-stack", "stack"),
+    "binary_sensor.media_status": ent("binary_sensor.media_status", "d-stack", "status"),
+    "sensor.media_type": ent("sensor.media_type", "d-stack", "stack_type"),
+    "sensor.media_containers": ent("sensor.media_containers", "d-stack", "stack_containers_count"),
+    /* zigbee2mqtt, in a stack */
+    "sensor.zigbee2mqtt_state": ent("sensor.zigbee2mqtt_state", "d-z2m", "container_state"),
+    "switch.zigbee2mqtt_container": ent("switch.zigbee2mqtt_container", "d-z2m", "container"),
+    /* a German install: entity ids carry no English words at all */
+    "sensor.paperless_zustand": ent("sensor.paperless_zustand", "d-de", "container_state"),
+    "switch.paperless_container": ent("switch.paperless_container", "d-de", "container"),
+    "sensor.paperless_cpu_auslastung_gesamt": ent("sensor.paperless_cpu_auslastung_gesamt", "d-de", "cpu_usage_total"),
+    "sensor.paperless_arbeitsspeicher_nutzung": ent("sensor.paperless_arbeitsspeicher_nutzung", "d-de", "memory_usage"),
+    /* excluded by device */
+    "sensor.disabled_one_state": ent("sensor.disabled_one_state", "d-off", "container_state"),
+    "sensor.not_portainer_state": ent("sensor.not_portainer_state", "d-other", "container_state"),
+    /* an entity with no state object yet */
+    "sensor.homeassistant_ghost": ent("sensor.homeassistant_ghost", "d-ha", "container_health_state")
+  };
+  var discoveryStates = function () {
+    var s = {};
+    Object.keys(discoveryEntities).forEach(function (id) {
+      if (id === "sensor.homeassistant_ghost") return;
+      var value = id.indexOf("switch.") === 0 ? "on"
+        : id.indexOf("button.") === 0 ? "2026-01-01T00:00:00+00:00"
+        : id.indexOf("update.") === 0 ? "off"
+        : id.indexOf("binary_sensor.") === 0 ? "on"
+        : "running";
+      s[id] = mk(id, value);
+    });
+    s["sensor.media_type"] = mk("sensor.media_type", "compose");
+    s["sensor.media_containers"] = mk("sensor.media_containers", "1");
+    s["sensor.local_container_count"] = mk("sensor.local_container_count", "9");
+    s["sensor.local_containers_running"] = mk("sensor.local_containers_running", "7");
+    s["sensor.local_containers_stopped"] = mk("sensor.local_containers_stopped", "2");
+    s["sensor.local_image_count"] = mk("sensor.local_image_count", "31");
+    s["sensor.local_docker_version"] = mk("sensor.local_docker_version", "29.1.2");
+    s["sensor.local_operating_system"] = mk("sensor.local_operating_system", "Debian GNU/Linux");
+    s["sensor.local_os_version"] = mk("sensor.local_os_version", "12");
+    s["sensor.homeassistant_cpu"] = mk("sensor.homeassistant_cpu", "4.5", { unit_of_measurement: "%" });
+    s["sensor.homeassistant_memory"] = mk("sensor.homeassistant_memory", "812", { unit_of_measurement: "MB" });
+    s["sensor.homeassistant_memory_pct"] = mk("sensor.homeassistant_memory_pct", "22.5", { unit_of_measurement: "%" });
+    s["sensor.homeassistant_image"] = mk("sensor.homeassistant_image", "ghcr.io/home-assistant/home-assistant:2026.8");
+    s["sensor.homeassistant_health"] = mk("sensor.homeassistant_health", "healthy");
+    s["sensor.paperless_zustand"] = mk("sensor.paperless_zustand", "exited");
+    s["sensor.paperless_cpu_auslastung_gesamt"] =
+      mk("sensor.paperless_cpu_auslastung_gesamt", "1.5", { unit_of_measurement: "%" });
+    s["sensor.paperless_arbeitsspeicher_nutzung"] =
+      mk("sensor.paperless_arbeitsspeicher_nutzung", "301", { unit_of_measurement: "MB" });
+    return s;
+  };
+  var discoveryHass = function (extra) {
+    return Object.assign(makeHass(discoveryStates()), {
+      entities: discoveryEntities,
+      devices: discoveryDevices,
+      areas: { office: { area_id: "office", name: "Office", aliases: ["Study"] } }
+    }, extra || {});
+  };
+  var discover = function (cfg) {
+    var el = document.createElement("docker-card");
+    el.setConfig(Object.assign({ type: "custom:docker-card", containers_expanded: true }, cfg));
+    sandbox.appendChild(el);
+    el.hass = discoveryHass();
+    return el;
+  };
+  var names = function (el) {
+    return rows(el).map(function (r) { return r.querySelector(".container-name").textContent; });
+  };
+
+  var auto = discover({ auto_discover: true });
+  eq("containers are discovered and sorted by name",
+     names(auto).join(","), "homeassistant,paperless,zigbee2mqtt");
+  eq("a device from another integration is ignored", names(auto).indexOf("not-portainer"), -1);
+  eq("a disabled device is ignored", names(auto).indexOf("disabled-one"), -1);
+  eq("no static containers are needed", auto.config.containers.length, 0);
+  eq("the state sensor drives the status",
+     textOf(rowNamed(auto, "homeassistant"), ".container-status"), "Running");
+  eq("the switch is wired up",
+     rowNamed(auto, "homeassistant").querySelector("ha-switch").disabled, false);
+  eq("the discovered actions collapse into one button", (function () {
+    rowNamed(auto, "homeassistant").querySelector(".overflow-trigger").click();
+    var out = qa(auto, ".menu-item").map(function (i) { return i.dataset.action; }).join(",");
+    document.body.click();
+    return out;
+  })(), "restart,kill,open");
+  eq("a discovered row with a single action keeps a direct button",
+     !!rowNamed(auto, "zigbee2mqtt").querySelector(".overflow-trigger"), false);
+  eq("cpu and memory are discovered, preferring the percentage sensor",
+     resourceText(auto, "homeassistant").indexOf("Memory: 22.5%") !== -1, true);
+  eq("the image sensor becomes an extra entity",
+     resourceText(auto, "homeassistant").indexOf("ghcr.io/home-assistant/home-assistant:2026.8") !== -1, true);
+  eq("…labelled without repeating the container name",
+     resourceText(auto, "homeassistant").indexOf("Image:") !== -1 &&
+     resourceText(auto, "homeassistant").indexOf("Homeassistant Image:"), -1);
+  eq("health is discovered", !!rowNamed(auto, "homeassistant").querySelector(".health-badge"), true);
+  eq("a hidden entity is not discovered",
+     JSON.stringify(auto._discovered.containers[0]).indexOf("hidden") , -1);
+  eq("an entity with no state is skipped", (function () {
+    return auto._discovered.containers.filter(function (c) {
+      return c.health_entity === "sensor.homeassistant_ghost";
+    }).length;
+  })(), 0);
+  eq("a German install maps identically — translation_key, never entity id",
+     resourceText(auto, "paperless"), "CPU: 1.5% | Memory: 301 MB");
+  eq("…including its state sensor",
+     textOf(rowNamed(auto, "paperless"), ".container-status"), "Stopped");
+
+  eq("the overview comes from the endpoint device",
+     overviewValue(auto, "Running / Total"), "7 / 9");
+  eq("…including the docker version", overviewValue(auto, "Docker"), "29.1.2");
+  eq("…and the OS", overviewValue(auto, "OS"), "Debian GNU/Linux · 12");
+  eq("the daemon status pill is discovered", textOf(auto.shadowRoot, ".status-pill"), "Online");
+  eq("host prune buttons are discovered", !!q(auto, ".header .overflow-trigger"), true);
+
+  eq("a container links back to Portainer", (function () {
+    var container = auto._discovered.containers.filter(function (c) { return c.name === "homeassistant"; })[0];
+    return container.hold_action.url_path;
+  })(), "https://portainer.local/#!/2/docker/containers/abc");
+  eq("link_to_portainer: false opts out", (function () {
+    var el = discover({ auto_discover: { link_to_portainer: false } });
+    return el._discovered.containers.filter(function (c) { return c.name === "homeassistant"; })[0].hold_action;
+  })(), undefined);
+
+  eq("stack filtering", names(discover({ auto_discover: { stack: "media" } })).join(","), "zigbee2mqtt");
+  eq("area filtering by name", names(discover({ auto_discover: { area: "Office" } })).join(","), "paperless");
+  eq("area filtering by alias", names(discover({ auto_discover: { area: "Study" } })).join(","), "paperless");
+  eq("include globs", names(discover({ auto_discover: { include: ["home*"] } })).join(","), "homeassistant");
+  eq("exclude globs",
+     names(discover({ auto_discover: { exclude: ["paper*", "zig*"] } })).join(","), "homeassistant");
+  eq("endpoint filtering by name", names(discover({ auto_discover: { endpoint: "Local" } })).length, 3);
+  eq("an endpoint that matches nothing yields nothing",
+     names(discover({ auto_discover: { endpoint: "Nope" } })).length, 0);
+  eq("sorting by state",
+     names(discover({ auto_discover: { sort: "state" } })).join(","), "paperless,homeassistant,zigbee2mqtt");
+  eq("sorting by cpu",
+     names(discover({ auto_discover: { sort: "cpu" } })).join(","), "homeassistant,paperless,zigbee2mqtt");
+  eq("overview: false leaves the overview out",
+     qa(discover({ auto_discover: { overview: false } }), ".overview-item").length, 0);
+  eq("a configured overview wins over the discovered one", (function () {
+    var el = discover({ auto_discover: true, docker_overview: { image_count: "sensor.local_image_count" } });
+    return overviewLabels(el).join(",");
+  })(), "Images");
+
+  var mergedCard = discover({
+    auto_discover: true,
+    containers: [
+      { name: "homeassistant", icon: "mdi:home-assistant" },
+      { name: "Manual extra", status_entity: "sensor.docker_nodered_status" }
+    ]
+  });
+  eq("a configured entry refines the discovered row of the same name",
+     rowNamed(mergedCard, "homeassistant").querySelector(".container-icon").getAttribute("icon"),
+     "mdi:home-assistant");
+  eq("…without losing what was discovered",
+     rowNamed(mergedCard, "homeassistant").querySelector("ha-switch").disabled, false);
+  eq("an entry that matches nothing is kept as a manual row",
+     names(mergedCard).indexOf("Manual extra") !== -1, true);
+  eq("manual rows come after discovered ones",
+     names(mergedCard).join(","), "homeassistant,paperless,zigbee2mqtt,Manual extra");
+
+  eq("discovery is skipped entirely without auto_discover",
+     make(clone(FULL_CONFIG))._discovered, undefined);
+  eq("a hass with no registries does not throw", (function () {
+    try {
+      var el = document.createElement("docker-card");
+      el.setConfig({ type: "custom:docker-card", auto_discover: true });
+      sandbox.appendChild(el);
+      el.hass = makeHass(baseStates());
+      return rows(el).length === 0;
+    } catch (e) { return String(e); }
+  })(), true);
+  eq("registries that stay identical do not re-discover", (function () {
+    var el = discover({ auto_discover: true });
+    var before = el._discovered;
+    el.hass = discoveryHass();
+    el.hass = discoveryHass();
+    return el._discovered === before;
+  })(), true);
+  eq("a new container appears when the registry changes", (function () {
+    var el = discover({ auto_discover: true });
+    var devices = Object.assign({}, discoveryDevices);
+    devices["d-new"] = dev("d-new", "Container", "aaa-new", { via_device_id: "d-end" });
+    var entities = Object.assign({}, discoveryEntities);
+    entities["sensor.aaa_new_state"] = ent("sensor.aaa_new_state", "d-new", "container_state");
+    var states = discoveryStates();
+    states["sensor.aaa_new_state"] = mk("sensor.aaa_new_state", "running");
+    el.hass = Object.assign(makeHass(states), { entities: entities, devices: devices, areas: {} });
+    return names(el).join(",");
+  })(), "aaa-new,homeassistant,paperless,zigbee2mqtt");
+  eq("discovered rows are keyed by device id so pending survives", (function () {
+    var el = discover({ auto_discover: true });
+    return el._discovered.containers[0].id;
+  })(), "d-ha");
+  eq("a registry without translation_key still finds the basics", (function () {
+    var entities = {
+      "switch.mystery_container": { entity_id: "switch.mystery_container", device_id: "d-m", platform: "portainer", labels: [] },
+      "sensor.mystery_state": { entity_id: "sensor.mystery_state", device_id: "d-m", platform: "portainer", labels: [] }
+    };
+    var devices = { "d-m": dev("d-m", "Container", "mystery") };
+    var states = {
+      "switch.mystery_container": mk("switch.mystery_container", "on"),
+      "sensor.mystery_state": mk("sensor.mystery_state", "running", { options: ["running", "exited"] })
+    };
+    var el = document.createElement("docker-card");
+    el.setConfig({ type: "custom:docker-card", auto_discover: true, containers_expanded: true });
+    sandbox.appendChild(el);
+    el.hass = Object.assign(makeHass(states), { entities: entities, devices: devices, areas: {} });
+    return names(el).join(",") + "/" + textOf(rows(el)[0], ".container-status");
+  })(), "mystery/Running");
+
+  /* ================================================================== *
+   * 25. stack grouping
+   * ================================================================== */
+  section("25. Stack grouping");
+
+  var groupNames = function (el) {
+    return qa(el, ".group-name").map(function (g) { return g.textContent; });
+  };
+  var groupCounts = function (el) {
+    return qa(el, ".group-count").map(function (g) { return g.textContent; });
+  };
+  var rowsInGroup = function (el, name) {
+    var group = qa(el, ".container-group").filter(function (g) {
+      return g.querySelector(".group-name").textContent === name;
+    })[0];
+    if (!group) return null;
+    return [].slice.call(group.querySelectorAll(".container-name")).map(function (n) { return n.textContent; });
+  };
+
+  var grouped = discover({ auto_discover: true, group_by: "stack" });
+  eq("stacks become groups, ungrouped last", groupNames(grouped).join(","), "media,Ungrouped");
+  eq("each group counts its rows", groupCounts(grouped).join(","), "1,2");
+  eq("containers land in the right group", rowsInGroup(grouped, "media").join(","), "zigbee2mqtt");
+  eq("…and everything else is ungrouped",
+     rowsInGroup(grouped, "Ungrouped").join(","), "homeassistant,paperless");
+  eq("every container still renders exactly once", rows(grouped).length, 3);
+  eq("rows keep their controls inside a group",
+     !!rowsInGroup(grouped, "media") &&
+     !!q(grouped, '.container-group[data-group="media"] ha-switch'), true);
+
+  eq("grouping is off by default", qa(discover({ auto_discover: true }), ".container-group").length, 0);
+  eq("group_by: stack with nothing to group renders a flat list", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true, group_by: "stack",
+      containers: [{ name: "A", status_entity: "sensor.docker_nodered_status" }]
+    });
+    return qa(el, ".container-group").length + "/" + rows(el).length;
+  })(), "0/1");
+  eq("an unknown group_by value is ignored", (function () {
+    return qa(discover({ auto_discover: true, group_by: "banana" }), ".container-group").length;
+  })(), 0);
+
+  var manualGroups = make({
+    type: "custom:docker-card", containers_expanded: true, group_by: "stack",
+    containers: [
+      { name: "Web", stack: "frontend", status_entity: "sensor.docker_homeassistant_status" },
+      { name: "DB", stack: "backend", status_entity: "sensor.docker_nodered_status" },
+      { name: "Cache", stack: "backend", status_entity: "sensor.docker_nodered_status" },
+      { name: "Loose", status_entity: "sensor.docker_frigate_status" }
+    ]
+  });
+  eq("grouping works without discovery, via containers[].stack",
+     groupNames(manualGroups).join(","), "backend,frontend,Ungrouped");
+  eq("groups are sorted by name", groupCounts(manualGroups).join(","), "2,1,1");
+  eq("members follow the config order", rowsInGroup(manualGroups, "backend").join(","), "DB,Cache");
+
+  eq("a group starts expanded",
+     q(manualGroups, ".container-group").classList.contains("collapsed"), false);
+  eq("the toggle reports its state",
+     q(manualGroups, ".group-toggle").getAttribute("aria-expanded"), "true");
+  eq("it controls its own list by id",
+     q(manualGroups, ".group-toggle").getAttribute("aria-controls"),
+     q(manualGroups, ".group-list").id);
+  q(manualGroups, ".group-toggle").click();
+  eq("clicking collapses just that group",
+     qa(manualGroups, ".container-group").map(function (g) {
+       return g.classList.contains("collapsed") ? "1" : "0";
+     }).join(""), "100");
+  eq("…and updates aria-expanded",
+     q(manualGroups, ".group-toggle").getAttribute("aria-expanded"), "false");
+  eq("…and hides the list from assistive tech", q(manualGroups, ".group-list").hidden, true);
+  eq("…and says what it will do next",
+     q(manualGroups, ".group-toggle").getAttribute("aria-label"), "Expand backend");
+  eq("the collapsed group survives a state update", (function () {
+    manualGroups.hass = makeHass(baseStates());
+    return q(manualGroups, ".container-group").classList.contains("collapsed");
+  })(), true);
+  q(manualGroups, ".group-toggle").click();
+  eq("clicking again expands it",
+     q(manualGroups, ".container-group").classList.contains("collapsed"), false);
+
+  eq("a discovered stack brings its own switch",
+     !!q(grouped, '.container-group[data-group="media"] .group-switch'), true);
+  eq("…reflecting the stack entity's state",
+     q(grouped, ".group-switch").checked, true);
+  eq("a group with no stack entity has no switch",
+     !!q(manualGroups, ".group-switch"), false);
+  calls = [];
+  q(grouped, ".group-switch").click();
+  await settle();
+  eq("the stack switch stops the whole stack",
+     calls[0] && calls[0].domain + "." + calls[0].service + " " + JSON.stringify(calls[0].data),
+     'switch.turn_off {"entity_id":"switch.media_stack"}');
+  eq("the stack switch is keyed apart from the container rows",
+     rows(grouped)[0].querySelector("ha-switch").checked, true);
+
+  eq("a stack switch can be configured by hand", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true, group_by: "stack",
+      stacks: { backend: { control_entity: "switch.docker_nodered" } },
+      containers: [
+        { name: "DB", stack: "backend", status_entity: "sensor.docker_nodered_status" },
+        { name: "Web", stack: "frontend", status_entity: "sensor.docker_homeassistant_status" }
+      ]
+    });
+    return qa(el, ".group-switch").length;
+  })(), 1);
+  eq("a configured stack entity overrides the discovered one", (function () {
+    var el = document.createElement("docker-card");
+    el.setConfig({
+      type: "custom:docker-card", containers_expanded: true, group_by: "stack",
+      auto_discover: true, stacks: { media: { control_entity: "switch.zigbee2mqtt_container" } }
+    });
+    sandbox.appendChild(el);
+    el.hass = discoveryHass();
+    calls = [];
+    el.shadowRoot.querySelector(".group-switch").click();
+    return calls[0] && calls[0].data.entity_id;
+  })(), "switch.zigbee2mqtt_container");
+
+  /* ================================================================== *
+   * 26. accessibility and hygiene
+   * ================================================================== */
+  section("26. Accessibility and hygiene");
+  eq("the section header is a real button", q(listCard, ".section-header").tagName, "BUTTON");
+  eq("…with an explicit type so it never submits a form",
+     q(listCard, ".section-header").type, "button");
+  eq("actionable elements are focusable",
+     qa(listCard, ".actionable").every(function (e) { return e.getAttribute("tabindex") === "0"; }), true);
+  eq("actionable elements carry a label",
+     qa(listCard, ".actionable").every(function (e) { return !!e.getAttribute("aria-label"); }), true);
+  eq("switches carry a title describing the next action",
+     rowNamed(listCard, "Home Assistant").querySelector("ha-switch").title, "Stop container");
+  var css = qa(listCard, "style").map(function (s) { return s.textContent; }).join("\n");
+  ok("focus-visible outlines are defined", css.indexOf(":focus-visible") !== -1);
+  ok("no :hover rule moves an element (hover bounce)",
+     !css.split("\n").filter(function (l) { return l.indexOf(":hover") !== -1; })
+        .some(function (l) { return /transform/.test(l); }));
+  /* A dashboard column can be far narrower than the viewport, so the row has to
+     reflow on its own width, not the window's. */
+  var narrow = document.createElement("div");
+  narrow.style.cssText = "position:absolute;left:-99999px;top:0;width:260px";
+  document.body.appendChild(narrow);
+  var narrowCard = document.createElement("docker-card");
+  narrowCard.setConfig({
+    type: "custom:docker-card", containers_expanded: true, show_icons: true,
+    containers: [{ name: "Home Assistant", icon: "mdi:home-assistant",
+                   status_entity: "sensor.docker_homeassistant_status",
+                   control_entity: "switch.docker_homeassistant",
+                   restart_entity: "switch.docker_restart_homeassistant" }]
+  });
+  narrow.appendChild(narrowCard);
+  narrowCard.hass = hass;
+  var narrowRow = narrowCard.shadowRoot.querySelector(".container-row");
+  var widthOf = function (sel) {
+    return Math.round(narrowRow.querySelector(sel).getBoundingClientRect().width);
+  };
+  ok("a 260px card does not overflow horizontally",
+     narrowCard.shadowRoot.querySelector("ha-card").scrollWidth <=
+     narrowCard.shadowRoot.querySelector("ha-card").clientWidth);
+  ok("the container name keeps a readable width when the card is narrow",
+     widthOf(".container-name-row") > 120, widthOf(".container-name-row") + "px");
+  ok("…and is not clipped", (function () {
+    var name = narrowRow.querySelector(".container-name");
+    return name.scrollWidth <= name.clientWidth;
+  })());
+  ok("the controls drop to their own line instead of squeezing the name",
+     narrowRow.querySelector(".actions").getBoundingClientRect().top >
+     narrowRow.querySelector(".container-name").getBoundingClientRect().top);
+  ok("the icon is still fully rendered", widthOf(".container-icon") === 24, widthOf(".container-icon"));
+
+  var unusedSelectors = (function () {
+    /* between them these cards exercise every rule in the stylesheet */
+    var openForMarkup = lifecycleCard({}, updateHass());
+    openMenu(openForMarkup);
+    var markup = [listCard, collapsed, oneIcon, alwaysIcons, openForMarkup, hostCard, auto, grouped,
+                  extrasCard([{ entity: "sensor.docker_homeassistant_health", icon: "mdi:heart-pulse" }]),
+                  make(clone(FULL_CONFIG), makeHass((function () {
+                    var s = baseStates();
+                    s["sensor.docker_frigate_status"] = mk("sensor.docker_frigate_status", "restarting");
+                    return s;
+                  })()))]
+      .map(function (el) { return el.shadowRoot.innerHTML; }).join("");
+    document.body.click();
+    var selectors = css.match(/\.[a-z-]+(?=[\s,{:])/g) || [];
+    return selectors.filter(function (sel, i, all) {
+      return all.indexOf(sel) === i && markup.indexOf(sel.slice(1)) === -1;
+    });
+  })();
+  ok("no dead selectors in the stylesheet", unusedSelectors.length === 0,
+     unusedSelectors.join(",") || "none");
+
+  /* ------------------------------------------------------------------ *
+   * report
+   * ------------------------------------------------------------------ */
+  var failed = results.filter(function (r) { return !r.pass; });
+  window.__results = { total: results.length, failed: failed.length, failures: failed, all: results };
+
+  var score = document.getElementById("score");
+  score.textContent = (results.length - failed.length) + " / " + results.length + " passed";
+  score.className = failed.length ? "bad" : "ok";
+  document.getElementById("score-label").textContent =
+    failed.length ? failed.length + " failing" : "all green";
+
+  var out = document.getElementById("results");
+  var groups = [];
+  results.forEach(function (r) {
+    var g = groups.filter(function (x) { return x.name === r.group; })[0];
+    if (!g) { g = { name: r.group, rows: [] }; groups.push(g); }
+    g.rows.push(r);
+  });
+  groups.forEach(function (g) {
+    var wrap = document.createElement("div");
+    wrap.className = "group" + (g.rows.every(function (r) { return r.pass; }) ? " all-pass" : "");
+    var h = document.createElement("h3");
+    h.textContent = g.name;
+    wrap.appendChild(h);
+    g.rows.forEach(function (r) {
+      var row = document.createElement("div");
+      row.className = "row " + (r.pass ? "pass" : "fail");
+      var tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = r.pass ? "PASS" : "FAIL";
+      var body = document.createElement("span");
+      body.textContent = r.name;
+      if (!r.pass && r.detail) {
+        var d = document.createElement("span");
+        d.className = "detail";
+        d.textContent = r.detail;
+        body.appendChild(d);
+      }
+      row.appendChild(tag);
+      row.appendChild(body);
+      wrap.appendChild(row);
+    });
+    out.appendChild(wrap);
+  });
+
+  document.getElementById("only-fails").addEventListener("change", function (e) {
+    document.body.classList.toggle("only-fails", e.target.checked);
+  });
+
+  window.__done = true;
+
+  /* ------------------------------------------------------------------ *
+   * visual previews
+   * ------------------------------------------------------------------ */
+  var visualHass = makeHass(extraStates);
+  var visualConfigs = [
+    Object.assign(clone(FULL_CONFIG), { title: "Docker @ MyServer" }),
+    Object.assign(clone(FULL_CONFIG), { title: "Collapsed by default", containers_expanded: false }),
+    {
+      type: "custom:docker-card",
+      title: "Icons and extra entities",
+      containers_expanded: true,
+      show_icons: true,
+      docker_overview: { status: "binary_sensor.docker_daemon_status" },
+      containers: [
+        { name: "Home Assistant", icon: "mdi:home-assistant",
+          status_entity: "sensor.docker_homeassistant_status",
+          control_entity: "switch.docker_homeassistant",
+          restart_entity: "switch.docker_restart_homeassistant",
+          cpu_entity: "sensor.docker_homeassistant_cpu",
+          memory_entity: "sensor.docker_homeassistant_memory",
+          extra_entities: [
+            "sensor.docker_homeassistant_image",
+            { entity: "sensor.docker_homeassistant_health", icon: "mdi:heart-pulse" }
+          ] },
+        { name: "Node-RED", icon: "mdi:sitemap",
+          status_entity: "sensor.docker_nodered_status",
+          control_entity: "switch.docker_nodered",
+          restart_entity: "button.docker_restart_nodered",
+          memory_entity: "sensor.docker_nodered_memory" },
+        { name: "Frigate", status_entity: "sensor.docker_frigate_status" }
+      ]
+    },
+    Object.assign(clone(overviewOnly), { title: "Overview only (auto-hidden section)" }),
+    {
+      type: "custom:docker-card",
+      title: "Custom accent colors",
+      containers_expanded: true,
+      running_color: "#2e8f57",
+      not_running_color: "#c22040",
+      docker_overview: { status: "binary_sensor.docker_daemon_status" },
+      containers: [
+        { name: "Home Assistant", status_entity: "sensor.docker_homeassistant_status",
+          control_entity: "switch.docker_homeassistant",
+          cpu_entity: "sensor.docker_homeassistant_cpu",
+          memory_entity: "sensor.docker_homeassistant_memory" },
+        { name: "Node-RED", status_entity: "sensor.docker_nodered_status",
+          control_entity: "switch.docker_nodered", restart_entity: "button.docker_restart_nodered",
+          running_color: "#0091ea", not_running_color: "#ff6d00" }
+      ]
+    },
+    { type: "custom:docker-card", title: "Nothing configured", containers_expanded: true, containers: [] }
+  ];
+  visualConfigs.push({
+    __hass: lifecycleHass(Object.assign(updateHass(), {
+      "sensor.z2m_state": mk("sensor.z2m_state", "paused"),
+      "button.z2m_resume": mk("button.z2m_resume", "2026-01-01T00:00:00+00:00"),
+      "button.z2m_pause": mk("button.z2m_pause", "unavailable"),
+      "button.z2m_restart": mk("button.z2m_restart", "unavailable")
+    })),
+    type: "custom:docker-card",
+    title: "Lifecycle actions",
+    containers_expanded: true,
+    show_icons: true,
+    containers: [Object.assign({}, LIFECYCLE, { icon: "mdi:zigbee" })]
+  });
+  visualConfigs.push({
+    __hass: discoveryHass(),
+    type: "custom:docker-card",
+    title: "Auto-discovered from Portainer",
+    containers_expanded: true,
+    show_icons: true,
+    auto_discover: true
+  });
+  visualConfigs.push({
+    __hass: discoveryHass(),
+    type: "custom:docker-card",
+    title: "Grouped by stack",
+    containers_expanded: true,
+    auto_discover: true,
+    group_by: "stack"
+  });
+
+  ["visual-light", "visual-dark"].forEach(function (id) {
+    var pane = document.getElementById(id);
+    visualConfigs.forEach(function (cfg) {
+      var el = document.createElement("docker-card");
+      var paneHass = cfg.__hass || visualHass;
+      var config = clone(cfg);
+      delete config.__hass;
+      el.setConfig(config);
+      pane.appendChild(el);
+      el.hass = paneHass;
+    });
+  });
+
+  /* ------------------------------------------------------------------ *
+   * interactive control lab
+   * ------------------------------------------------------------------ */
+  (function () {
+    var labStates = baseStates();
+    var ticks = 0;
+    var rebuilds = 0;
+    var logged = [];
+    var noise = 17.4;
+
+    var lab = document.createElement("docker-card");
+    lab.setConfig(Object.assign(clone(FULL_CONFIG), { title: "Docker @ lab" }));
+    document.getElementById("lab-card").appendChild(lab);
+
+    var log = function (text) {
+      logged.unshift(text);
+      var el = document.getElementById("call-log");
+      el.innerHTML = logged.slice(0, 40).map(function (line) {
+        return line.replace(/^(\S+)/, "<b>$1</b>");
+      }).join("\n") || "no service calls yet";
+    };
+
+    var push = function () {
+      ticks++;
+      lab.hass = {
+        states: Object.assign({}, labStates),
+        language: "en",
+        callService: function (domain, service, data) {
+          log(domain + "." + service + "  " + JSON.stringify(data || {}));
+          var delay = document.getElementById("slow-calls").checked ? 2000 : 0;
+          return new Promise(function (resolve) { setTimeout(resolve, delay); });
+        }
+      };
+      paint();
+    };
+
+    var observer = new MutationObserver(function () { rebuilds++; paint(); });
+    var observed = null;
+    var watch = function () {
+      var card = lab.shadowRoot.querySelector("ha-card");
+      if (card && card !== observed) {
+        observed = card;
+        observer.observe(card, { childList: true });
+      }
+    };
+
+    var row = function (dt, dd, cls) {
+      return "<dt>" + dt + "</dt><dd" + (cls ? ' class="' + cls + '"' : "") + ">" + dd + "</dd>";
+    };
+    var paint = function () {
+      watch();
+      var sr = lab.shadowRoot;
+      var running = sr.querySelectorAll(".container-row.running").length;
+      var pending = sr.querySelectorAll(".container-row.pending").length;
+      document.getElementById("lab-readout").innerHTML =
+        row("hass ticks", ticks) +
+        row("card rebuilds", rebuilds, rebuilds > ticks ? "warn" : "good") +
+        row("rows", sr.querySelectorAll(".container-row").length) +
+        row("running", running) +
+        row("pending", pending, pending ? "warn" : "") +
+        row("status pill", (sr.querySelector(".status-pill") || {}).textContent || "—") +
+        row("service calls", logged.length);
+    };
+
+    document.getElementById("tick-quiet").addEventListener("click", function () {
+      noise = Math.round((noise + 1.3) * 10) / 10;
+      labStates["sensor.unrelated_noise"] =
+        mk("sensor.unrelated_noise", String(noise), { friendly_name: "Noise" });
+      push();
+    });
+    document.getElementById("tick-relevant").addEventListener("click", function () {
+      var current = labStates["sensor.docker_nodered_status"].state;
+      labStates["sensor.docker_nodered_status"] =
+        mk("sensor.docker_nodered_status", current === "running" ? "exited" : "running");
+      labStates["switch.docker_nodered"] =
+        mk("switch.docker_nodered", current === "running" ? "off" : "on");
+      push();
+    });
+    var timer = null;
+    document.getElementById("tick-auto").addEventListener("click", function (e) {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+        e.target.textContent = "Fire unrelated updates every 400 ms";
+        return;
+      }
+      e.target.textContent = "Stop firing updates";
+      timer = setInterval(function () {
+        noise = Math.round((noise + 0.7) * 10) / 10;
+        labStates["sensor.unrelated_noise"] =
+          mk("sensor.unrelated_noise", String(noise), { friendly_name: "Noise" });
+        push();
+      }, 400);
+    });
+    document.getElementById("reset-counters").addEventListener("click", function () {
+      ticks = 0; rebuilds = 0; paint();
+    });
+    document.getElementById("clear-log").addEventListener("click", function () {
+      logged = [];
+      document.getElementById("call-log").textContent = "no service calls yet";
+      paint();
+    });
+
+    push();
+    rebuilds = 0;
+    ticks = 0;
+    paint();
+  })();
+})();
+</script>
+</body>
+</html>
