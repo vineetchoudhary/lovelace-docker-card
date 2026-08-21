@@ -6,8 +6,12 @@ A simple Lovelace card that lets you monitor and control your Docker containers 
 
 - Compact overview of Docker host stats (counts, version, OS, daemon state)
 - Live container list with status badges and start/stop actions
-- Optional per-container CPU and memory usage
-- Optional restart button per container for quick recovery
+- Optional per-container CPU and memory usage, plus any other entity you want on the row
+- Start, stop, restart, pause, resume, kill and recreate from one compact menu, with confirmation on the destructive ones
+- Image-update badge per container, installable from the card
+- Auto-discovery from the Portainer integration — one line of YAML builds the whole card
+- Optional grouping by Docker Compose stack, with a switch for the whole stack
+- Optional per-container icons
 - Theme-aware styling with configurable running vs not-running colors
 - Works out of the box with Portainer entities or any toggle-friendly domain
 - Optional tap/hold actions on each container row to trigger more-info, URLs, or service calls
@@ -21,6 +25,18 @@ A simple Lovelace card that lets you monitor and control your Docker containers 
 5. If HACS does not add it automatically, register `/hacsfiles/lovelace-docker-card/docker-card.js` as a Lovelace resource.
 
 ## Example configuration
+
+With the Portainer integration, this is the whole configuration:
+
+```yaml
+type: custom:docker-card
+title: Docker @ MyServer
+auto_discover: true
+group_by: stack
+containers_expanded: true
+```
+
+Or wire everything up by hand:
 
 ```yaml
 type: custom:docker-card
