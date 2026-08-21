@@ -29,16 +29,9 @@ A simple Lovelace card that lets you view and control your Docker containers fro
 ## Installation
 
 ### 1. Via HACS (recommended)
-1. In Home Assistant, open **HACS (Community Store) → ⋮ → Custom repositories**.
-2. Add this repository as a **Dashboard** type and click **Add**.
-3. Locate **Docker Card** under **Frontend** and install it.
-4. Reload Lovelace resources (or restart Home Assistant) so the module is served.
-
-<!--
 Installation is easiest via the [Home Assistant Community Store (HACS)](https://hacs.xyz/), which is the best place to get third-party integrations for Home Assistant. Once you have HACS set up, simply click the button below (requires My Homeassistant configured) or follow the [instructions for adding a custom repository](https://hacs.xyz/docs/faq/custom_repositories) and then locate **Docker Card** under **Frontend** and install it.
 
 [![](/icons/hacs.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=vineetchoudhary&repository=lovelace-docker-card&category=dashboard)
--->
 
 ### 2. Manual install
 
