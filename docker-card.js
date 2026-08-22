@@ -77,6 +77,7 @@
       failed_stop: "Failed to stop {name}. Check logs.",
       missing_toggle: "No service configured to {action} {name}.",
       missing_action: "No {action} service configured for {name}.",
+      failed_service: "Failed to call {service}. Check logs.",
       pending: {
         restart: "Restarting {name}…",
         pause: "Pausing {name}…",
@@ -86,6 +87,12 @@
         update: "Updating {name}…",
         prune_images: "Pruning unused images…",
         prune_volumes: "Pruning unused volumes…",
+      },
+      done: {
+        recreate: "Recreated {name}.",
+        update: "Updated {name}.",
+        prune_images: "Pruned unused images.",
+        prune_volumes: "Pruned unused volumes.",
       },
       failed: {
         restart: "Failed to restart {name}.",
@@ -193,6 +200,11 @@
   const DEFAULT_TRANSITIONAL_STATES = ["restarting", "removing", "paused", "starting"];
 
   const UNGROUPED_KEY = "__ungrouped__";
+  // Actions that finish silently, or run long enough that the card alone does
+  // not tell you they are done. Start/stop/pause/resume/restart/kill all move
+  // the container state visibly, so a second toast would just be noise.
+  const COMPLETION_NOTIFY = ["recreate", "update", "prune_images", "prune_volumes"];
+
   const ARM_TIMEOUT_MS = 4000;
   // A recreate can run for minutes with no progress signal; never leave a row
   // stuck pending because a service call never resolves.
@@ -1394,7 +1406,7 @@
           top: calc(100% + 0.35rem);
           right: 0;
           z-index: 4;
-          min-width: 11rem;
+          min-width: 13rem;
           display: flex;
           flex-direction: column;
           padding: 0.25rem;
@@ -1691,10 +1703,13 @@
       const key = "__host__";
       this._setPending(key, entry.key);
       this.render();
+      this._notify(this._localize(`notifications.pending.${entry.key}`));
 
       try {
         await this._callService(serviceConfig);
-        this._notify(this._localize(`notifications.pending.${entry.key}`));
+        if (COMPLETION_NOTIFY.includes(entry.key)) {
+          this._notify(this._localize(`notifications.done.${entry.key}`));
+        }
       } catch (error) {
         console.error(`docker-card ${entry.key} error`, error);
         this._notify(this._localize(`notifications.failed.${entry.key}`));
@@ -3309,11 +3324,10 @@
             data.entity_id = defaultEntity;
           }
           const target = config.target;
-          if (target) {
-            this._hass.callService(domain, service, data, target);
-          } else {
-            this._hass.callService(domain, service, data);
-          }
+          const call = target
+            ? this._hass.callService(domain, service, data, target)
+            : this._hass.callService(domain, service, data);
+          this._trackServiceCall(call, `${domain}.${service}`);
           break;
         }
         case "fire-dom-event": {
@@ -3360,7 +3374,22 @@
       if (!this._hass || !entityId) {
         return;
       }
-      this._hass.callService("homeassistant", "toggle", { entity_id: entityId });
+      this._trackServiceCall(
+        this._hass.callService("homeassistant", "toggle", { entity_id: entityId }),
+        "homeassistant.toggle",
+      );
+    }
+
+    // tap/hold actions are fire-and-forget, but a rejected call should still
+    // surface rather than becoming an unhandled promise rejection.
+    _trackServiceCall(call, label) {
+      if (!call || typeof call.then !== "function") {
+        return;
+      }
+      call.catch((error) => {
+        console.error(`docker-card ${label} error`, error);
+        this._notify(this._localize("notifications.failed_service", { service: label }));
+      });
     }
 
     _toggleCapability(entityId, domainOverride) {
@@ -3404,13 +3433,14 @@
       this._setPending(key, action);
       this.render();
 
+      this._notify(
+        shouldRun
+          ? this._localize("notifications.starting", { name: displayName })
+          : this._localize("notifications.stopping", { name: displayName }),
+      );
+
       try {
         await this._callService(serviceConfig);
-        this._notify(
-          shouldRun
-            ? this._localize("notifications.starting", { name: displayName })
-            : this._localize("notifications.stopping", { name: displayName }),
-        );
       } catch (error) {
         console.error("docker-card toggle error", error);
         this._notify(
@@ -3441,10 +3471,13 @@
       this._closeMenu();
       this._setPending(key, actionKey);
       this.render();
+      this._notify(this._localize(`notifications.pending.${actionKey}`, { name: displayName }));
 
       try {
         await this._callService(serviceConfig);
-        this._notify(this._localize(`notifications.pending.${actionKey}`, { name: displayName }));
+        if (COMPLETION_NOTIFY.includes(actionKey)) {
+          this._notify(this._localize(`notifications.done.${actionKey}`, { name: displayName }));
+        }
       } catch (error) {
         console.error(`docker-card ${actionKey} error`, error);
         this._notify(this._localize(`notifications.failed.${actionKey}`, { name: displayName }));
