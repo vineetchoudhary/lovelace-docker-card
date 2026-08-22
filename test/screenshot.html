@@ -120,11 +120,27 @@
     attributeChangedCallback() { this._draw(); }
     _draw() {
       if (!this.shadowRoot) this.attachShadow({ mode: "open" });
-      var d = MDI[this.getAttribute("icon")] || MDI["mdi:docker"];
+      var name = this.getAttribute("icon") || "";
+      var path = MDI[name];
+      var body;
+      if (path) {
+        body = '<path d="' + path + '"></path>';
+      } else {
+        var initials = name.replace(/^mdi:/, "").split("-")
+          .map(function (w) { return w.charAt(0).toUpperCase(); }).join("").slice(0, 2);
+        body = '<text x="12" y="16" text-anchor="middle" font-size="11" ' +
+               'font-family="ui-monospace,monospace" fill="currentColor">' + initials + '</text>';
+      }
+      /* Mirrors ha-icon + ha-svg-icon: the host carries no display or size of its
+         own, so a card that assumes otherwise misaligns here exactly as it does
+         in Home Assistant. */
       this.shadowRoot.innerHTML =
-        '<style>:host{display:inline-flex;width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px)}' +
+        '<style>:host{fill:currentcolor}' +
+        '.wrap{display:var(--ha-icon-display,inline-flex);align-items:center;justify-content:center;' +
+        'position:relative;vertical-align:middle;fill:currentcolor;' +
+        'width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px)}' +
         'svg{width:100%;height:100%;fill:currentColor}</style>' +
-        '<svg viewBox="0 0 24 24"><path d="' + d + '"></path></svg>';
+        '<span class="wrap"><svg viewBox="0 0 24 24"><title>' + name + '</title>' + body + '</svg></span>';
     }
   }
   customElements.define("ha-icon", HaIcon);

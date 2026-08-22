@@ -308,10 +308,16 @@
         body = '<text x="12" y="16" text-anchor="middle" font-size="11" ' +
                'font-family="ui-monospace,monospace" fill="currentColor">' + initials + '</text>';
       }
+      /* Mirrors ha-icon + ha-svg-icon: the host carries no display or size of its
+         own, so a card that assumes otherwise misaligns here exactly as it does
+         in Home Assistant. */
       this.shadowRoot.innerHTML =
-        '<style>:host{display:inline-flex;width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px)}' +
+        '<style>:host{fill:currentcolor}' +
+        '.wrap{display:var(--ha-icon-display,inline-flex);align-items:center;justify-content:center;' +
+        'position:relative;vertical-align:middle;fill:currentcolor;' +
+        'width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px)}' +
         'svg{width:100%;height:100%;fill:currentColor}</style>' +
-        '<svg viewBox="0 0 24 24"><title>' + name + '</title>' + body + '</svg>';
+        '<span class="wrap"><svg viewBox="0 0 24 24"><title>' + name + '</title>' + body + '</svg></span>';
     }
   }
   customElements.define("ha-icon", HaIcon);
@@ -1450,6 +1456,42 @@
     return primaryOf(el);
   })(), "resume");
   eq("primary_action overrides the default", primaryOf(lifecycleCard({ primary_action: "kill" })), "kill");
+  eq("a card-level primary_action applies to every container", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true, primary_action: "kill",
+      containers: [
+        Object.assign({}, LIFECYCLE),
+        Object.assign({}, LIFECYCLE, { name: "Second" })
+      ]
+    }, lifecycleHass());
+    return rows(el).map(function (r) {
+      var b = r.querySelector(".action-button:not(.overflow-trigger)");
+      return b ? b.dataset.action : "none";
+    }).join(",");
+  })(), "kill,kill");
+  eq("a container can override the card-level primary_action", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true, primary_action: "kill",
+      containers: [
+        Object.assign({}, LIFECYCLE),
+        Object.assign({}, LIFECYCLE, { name: "Second", primary_action: "restart" })
+      ]
+    }, lifecycleHass());
+    return rows(el).map(function (r) {
+      var b = r.querySelector(".action-button:not(.overflow-trigger)");
+      return b ? b.dataset.action : "none";
+    }).join(",");
+  })(), "kill,restart");
+  eq("a card-level actions list applies to every container too", (function () {
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true, actions: ["restart"],
+      containers: [Object.assign({}, LIFECYCLE), Object.assign({}, LIFECYCLE, { name: "Second" })]
+    }, lifecycleHass());
+    return rows(el).map(function (r) {
+      var b = r.querySelector(".action-button:not(.overflow-trigger)");
+      return (b ? b.dataset.action : "none") + (r.querySelector(".overflow-trigger") ? "+menu" : "");
+    }).join(",");
+  })(), "restart,restart");
   eq("primary_action: none keeps everything in the menu even when alone", (function () {
     var el = make({
       type: "custom:docker-card", containers_expanded: true, primary_action: "none",
@@ -2129,9 +2171,169 @@
   })(), "switch.zigbee2mqtt_container");
 
   /* ================================================================== *
-   * 26. accessibility and hygiene
+   * 26. custom Portainer base url
    * ================================================================== */
-  section("26. Accessibility and hygiene");
+  section("26. Custom base URL");
+  var linkOf = function (el, name) {
+    var container = el._discovered.containers.filter(function (c) { return c.name === name; })[0];
+    return container && container.hold_action ? container.hold_action.url_path : null;
+  };
+  eq("without base_url the integration's own URL is used",
+     linkOf(discover({ auto_discover: true }), "homeassistant"),
+     "https://portainer.local/#!/2/docker/containers/abc");
+  eq("base_url swaps scheme and host, keeping the route",
+     linkOf(discover({ auto_discover: { base_url: "https://docker.example.com" } }), "homeassistant"),
+     "https://docker.example.com/#!/2/docker/containers/abc");
+  eq("a port is carried over",
+     linkOf(discover({ auto_discover: { base_url: "http://192.168.1.10:9443" } }), "homeassistant"),
+     "http://192.168.1.10:9443/#!/2/docker/containers/abc");
+  eq("a bare host is assumed to be https",
+     linkOf(discover({ auto_discover: { base_url: "docker.example.com" } }), "homeassistant"),
+     "https://docker.example.com/#!/2/docker/containers/abc");
+  eq("a path prefix is preserved for reverse proxies",
+     linkOf(discover({ auto_discover: { base_url: "https://home.example.com/portainer" } }), "homeassistant"),
+     "https://home.example.com/portainer/#!/2/docker/containers/abc");
+  eq("a trailing slash does not double up",
+     linkOf(discover({ auto_discover: { base_url: "https://home.example.com/portainer/" } }), "homeassistant"),
+     "https://home.example.com/portainer/#!/2/docker/containers/abc");
+  eq("an unparseable base_url falls back to the original link",
+     linkOf(discover({ auto_discover: { base_url: "::::" } }), "homeassistant"),
+     "https://portainer.local/#!/2/docker/containers/abc");
+  eq("base_url does not invent a link where the device has none",
+     linkOf(discover({ auto_discover: { base_url: "https://docker.example.com" } }), "zigbee2mqtt"), null);
+  eq("link_to_portainer: false still wins over base_url",
+     linkOf(discover({ auto_discover: { base_url: "https://docker.example.com", link_to_portainer: false } }),
+            "homeassistant"), null);
+
+  /* ================================================================== *
+   * 27. overview resilience
+   * ================================================================== */
+  section("27. Overview resilience");
+  var partialStates = function (overrides) {
+    return Object.assign(discoveryStates(), overrides);
+  };
+  var partialDiscovery = function (overrides) {
+    var el = document.createElement("docker-card");
+    el.setConfig({ type: "custom:docker-card", auto_discover: true, containers_expanded: true });
+    sandbox.appendChild(el);
+    el.hass = Object.assign(makeHass(partialStates(overrides)), {
+      entities: discoveryEntities, devices: discoveryDevices, areas: {}
+    });
+    return el;
+  };
+
+  eq("a healthy endpoint shows every pill",
+     overviewLabels(partialDiscovery({})).join(","), "Running / Total,Images,Docker,OS");
+  eq("one unavailable sensor only drops its own pill",
+     overviewLabels(partialDiscovery({
+       "sensor.local_image_count": mk("sensor.local_image_count", "unavailable")
+     })).join(","), "Running / Total,Docker,OS");
+  eq("…and the rest keep their values",
+     overviewValue(partialDiscovery({
+       "sensor.local_image_count": mk("sensor.local_image_count", "unavailable")
+     }), "Docker"), "29.1.2");
+  eq("an unknown sensor is dropped the same way",
+     overviewLabels(partialDiscovery({
+       "sensor.local_docker_version": mk("sensor.local_docker_version", "unknown")
+     })).join(","), "Running / Total,Images,OS");
+  eq("half a running/total still renders", (function () {
+    return overviewValue(partialDiscovery({
+      "sensor.local_container_count": mk("sensor.local_container_count", "unavailable"),
+      "sensor.local_containers_stopped": mk("sensor.local_containers_stopped", "unavailable")
+    }), "Running / Total");
+  })(), "7 / —");
+  eq("both halves missing drops that pill only",
+     overviewLabels(partialDiscovery({
+       "sensor.local_containers_running": mk("sensor.local_containers_running", "unavailable"),
+       "sensor.local_container_count": mk("sensor.local_container_count", "unavailable"),
+       "sensor.local_containers_stopped": mk("sensor.local_containers_stopped", "unavailable")
+     })).join(","), "Images,Docker,OS");
+  eq("only one half of the OS pair still renders",
+     overviewValue(partialDiscovery({
+       "sensor.local_os_version": mk("sensor.local_os_version", "unavailable")
+     }), "OS"), "Debian GNU/Linux");
+  eq("every sensor unavailable hides the grid but keeps the card", (function () {
+    var el = partialDiscovery({
+      "sensor.local_container_count": mk("sensor.local_container_count", "unavailable"),
+      "sensor.local_containers_running": mk("sensor.local_containers_running", "unavailable"),
+      "sensor.local_containers_stopped": mk("sensor.local_containers_stopped", "unavailable"),
+      "sensor.local_image_count": mk("sensor.local_image_count", "unavailable"),
+      "sensor.local_docker_version": mk("sensor.local_docker_version", "unavailable"),
+      "sensor.local_operating_system": mk("sensor.local_operating_system", "unavailable"),
+      "sensor.local_os_version": mk("sensor.local_os_version", "unavailable")
+    });
+    return qa(el, ".overview-item").length + "/" + rows(el).length;
+  })(), "0/3");
+  eq("an unavailable daemon sensor reads Unknown, not a dash",
+     textOf(partialDiscovery({
+       "binary_sensor.local_status": mk("binary_sensor.local_status", "unavailable")
+     }).shadowRoot, ".status-pill"), "Unknown");
+  eq("an unavailable prune button is not offered", (function () {
+    var el = partialDiscovery({
+      "button.local_prune_unused_images": mk("button.local_prune_unused_images", "unavailable"),
+      "button.local_prune_unused_volumes": mk("button.local_prune_unused_volumes", "unavailable")
+    });
+    return !!q(el, ".header .overflow-trigger");
+  })(), false);
+  eq("a container whose sensors are unavailable still renders its row", (function () {
+    var el = partialDiscovery({
+      "sensor.homeassistant_cpu": mk("sensor.homeassistant_cpu", "unavailable"),
+      "sensor.homeassistant_memory_pct": mk("sensor.homeassistant_memory_pct", "unavailable"),
+      "sensor.homeassistant_health": mk("sensor.homeassistant_health", "unavailable")
+    });
+    return rows(el).length + "/" + (resourceText(el, "homeassistant") === null ? "no-resources" : "resources");
+  })(), "3/resources");
+
+  /* ================================================================== *
+   * 28. icon alignment
+   * ================================================================== */
+  section("28. Icon alignment");
+  /* ha-icon is display:inline in Home Assistant, so a naive layout leaves the
+     glyph sitting below the centre of its button. The stub mirrors that. */
+  var glyphOffset = function (box, icon) {
+    var wrap = icon.shadowRoot.querySelector(".wrap");
+    if (!wrap) return "no wrap";
+    var b = box.getBoundingClientRect();
+    var w = wrap.getBoundingClientRect();
+    return Math.abs((w.top + w.height / 2) - (b.top + b.height / 2));
+  };
+  var alignCard = make({
+    type: "custom:docker-card", containers_expanded: true, show_icons: true,
+    containers: [Object.assign({}, LIFECYCLE, { icon: "mdi:zigbee" })]
+  }, lifecycleHass());
+  var alignRow = rows(alignCard)[0];
+  ok("the overflow glyph is centred in its button",
+     glyphOffset(alignRow.querySelector(".action-button"),
+                 alignRow.querySelector(".action-button ha-icon")) < 0.5,
+     glyphOffset(alignRow.querySelector(".action-button"), alignRow.querySelector(".action-button ha-icon")));
+  ok("the container icon is centred against the row",
+     Math.abs((function () {
+       var i = alignRow.querySelector(".container-icon").getBoundingClientRect();
+       var r = alignRow.getBoundingClientRect();
+       return (i.top + i.height / 2) - (r.top + r.height / 2);
+     })()) < 0.5);
+  ok("the badge glyph is centred in its badge", (function () {
+    var el = lifecycleCard({}, updateHass());
+    var badge = q(el, ".update-badge");
+    return glyphOffset(badge, badge.querySelector("ha-icon")) < 0.5;
+  })());
+  ok("menu glyphs are centred too", (function () {
+    var el = lifecycleCard();
+    openMenu(el);
+    var item = q(el, ".menu-item");
+    var offset = glyphOffset(item, item.querySelector("ha-icon"));
+    document.body.click();
+    return offset < 0.5;
+  })());
+  eq("the action glyph is the size the card asks for", (function () {
+    var wrap = alignRow.querySelector(".action-button ha-icon").shadowRoot.querySelector(".wrap");
+    return Math.round(wrap.getBoundingClientRect().height);
+  })(), 18);
+
+  /* ================================================================== *
+   * 29. accessibility and hygiene
+   * ================================================================== */
+  section("29. Accessibility and hygiene");
   eq("the section header is a real button", q(listCard, ".section-header").tagName, "BUTTON");
   eq("…with an explicit type so it never submits a form",
      q(listCard, ".section-header").type, "button");
