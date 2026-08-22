@@ -2,10 +2,7 @@
 
 A Lovelace card to monitor and control your Docker containers from Home Assistant. Point it at the official [Portainer integration](https://www.home-assistant.io/integrations/portainer/) and it builds itself, every container, its controls, resource usage and image updates, with no templates or shell commands.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="screenshots/hero-dark.png">
-  <img alt="Docker Card" src="screenshots/hero-light.png">
-</picture>
+![Docker Card](screenshots/hero-dark.png)
 
 ## Contents
 
@@ -314,10 +311,7 @@ A `base_url` with no port drops the original one and uses the default for the sc
 
 ### Container actions
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="screenshots/actions-dark.png">
-  <img alt="Container actions" src="screenshots/actions-light.png">
-</picture>
+![Container actions](screenshots/actions-dark.png)
 
 The switch starts and stops the container. Everything else sits behind a single `⋮` button, so the row keeps its width no matter how many actions a container supports.
 
@@ -370,10 +364,7 @@ Clicking the badge opens the more-info dialog, which is where Home Assistant off
 
 ### CPU, memory and extra entities
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="screenshots/resources-dark.png">
-  <img alt="Resource line" src="screenshots/resources-light.png">
-</picture>
+![Resource line](screenshots/resources-dark.png)
 
 `cpu_entity` and `memory_entity` are shorthands for the two most common cases. Anything else goes in `extra_entities`:
 
@@ -416,10 +407,7 @@ When any row has an icon, rows without one reserve the same space so the list st
 
 ### Grouping by stack
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="screenshots/stacks-dark.png">
-  <img alt="Grouped by stack" src="screenshots/stacks-light.png">
-</picture>
+![Grouped by stack](screenshots/stacks-dark.png)
 
 `group_by: stack` lists containers under a collapsible heading per stack, with a count and a switch that starts or stops the whole stack:
 
@@ -449,10 +437,7 @@ Groups sort by name, containers with no stack collect under **Ungrouped** (alway
 
 ### Container states
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="screenshots/states-dark.png">
-  <img alt="Container states" src="screenshots/states-light.png">
-</picture>
+![Container states](screenshots/states-dark.png)
 
 Docker containers are not simply running or stopped, so states fall into three buckets:
 
@@ -466,10 +451,7 @@ Anything else is shown as-is with the not-running styling. The switch is disable
 
 ### Hiding the container list
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="screenshots/overview-dark.png">
-  <img alt="Overview only and collapsed" src="screenshots/overview-light.png">
-</picture>
+![Overview only and collapsed](screenshots/overview-dark.png)
 
 | `show_containers` | Behaviour |
 | --- | --- |
@@ -490,10 +472,7 @@ docker_overview:
 
 ### Styling and theming
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="screenshots/themes-dark.png">
-  <img alt="Light and dark" src="screenshots/themes-light.png">
-</picture>
+![Light and dark](screenshots/themes-dark.png)
 
 - **Accent colors:** override `running_color` and `not_running_color` globally, or per container to highlight critical services. They fall back to your theme (`--state-active-color`, `--state-error-color`) and then to the card's own defaults.
 - **Running/Total highlight:** the overview pill turns the not-running color whenever the counts diverge.
