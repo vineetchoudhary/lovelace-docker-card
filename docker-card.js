@@ -347,6 +347,29 @@
     return patterns.some((pattern) => globToRegExp(pattern).test(text));
   };
 
+  // Swaps the scheme/host of a discovered link for one the user can actually
+  // reach, keeping the integration's own path and hash route intact.
+  const rewriteOrigin = (url, base) => {
+    if (!url || !base) {
+      return url;
+    }
+    try {
+      const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(base) ? base : `https://${base}`;
+      const override = new URL(withScheme);
+      const target = new URL(url);
+      target.protocol = override.protocol;
+      target.host = override.host;
+      const prefix = override.pathname.replace(/\/+$/, "");
+      if (prefix) {
+        target.pathname = `${prefix}${target.pathname}`;
+      }
+      return target.toString();
+    } catch (error) {
+      console.warn("docker-card: could not apply auto_discover.base_url", base, error);
+      return url;
+    }
+  };
+
   const normalizeAutoDiscover = (value) => {
     if (!value) {
       return undefined;
@@ -363,6 +386,7 @@
       include: asList(options.include).map(String),
       exclude: asList(options.exclude).map(String),
       sort: (options.sort || "name").toString().toLowerCase(),
+      base_url: options.base_url === undefined ? undefined : options.base_url.toString(),
       link_to_portainer: options.link_to_portainer !== false,
       overview: options.overview !== false,
       include_hidden: options.include_hidden === true,
@@ -668,7 +692,10 @@
             container.stack = nameOf(stack);
           }
           if (options.link_to_portainer && device.configuration_url) {
-            container.hold_action = { action: "url", url_path: device.configuration_url };
+            container.hold_action = {
+              action: "url",
+              url_path: rewriteOrigin(device.configuration_url, options.base_url),
+            };
           }
           if (container.image_entity) {
             container.extra_entities = [{ entity: container.image_entity }];
@@ -1310,10 +1337,20 @@
           flex: 0 0 auto;
           margin-left: auto;
         }
+        /* ha-icon is display:inline in Home Assistant, so without this its box is
+           sized by a line box and the glyph sits below the centre of its slot. */
+        ha-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          line-height: 0;
+          flex: 0 0 auto;
+        }
         .action-button {
           display: inline-flex;
           align-items: center;
           justify-content: center;
+          line-height: 0;
           width: 2.25rem;
           height: 2.25rem;
           padding: 0;
@@ -3542,6 +3579,7 @@
         degraded: "status.degraded",
         paused: "status.paused",
         unknown: "status.unknown",
+        unavailable: "status.unknown",
         idle: "status.idle",
       };
       if (Object.prototype.hasOwnProperty.call(transitional, value)) {
