@@ -22,6 +22,7 @@ A Lovelace card to monitor and control your Docker containers from Home Assistan
   - [Container options](#container-options)
 - [Features in depth](#features-in-depth)
   - [Auto-discovery](#auto-discovery)
+  - [Custom Portainer URL](#custom-portainer-url)
   - [Container actions](#container-actions)
   - [Image updates](#image-updates)
   - [CPU, memory and extra entities](#cpu-memory-and-extra-entities)
@@ -182,6 +183,7 @@ optional:
 | `exclude` | *none* | Name globs to exclude. Exclusions win over inclusions |
 | `sort` | `name` | Row order: `name`, `state` or `cpu` (busiest first) |
 | `overview` | `true` | Fill `docker_overview` from the endpoint device. A `docker_overview` you write yourself always wins |
+| `base_url` | *integration's own URL* | Scheme/host to use for those links, e.g. `https://docker.example.com`. Useful when Portainer is configured by IP but you reach it on a domain — see [Custom Portainer URL](#custom-portainer-url) |
 | `link_to_portainer` | `true` | Give each row a `hold_action` opening that container's page in Portainer |
 | `include_hidden` | `false` | Include entities hidden in the Home Assistant entity registry |
 
@@ -196,12 +198,13 @@ auto_discover:
   sort: cpu
   overview: true
   link_to_portainer: true
+  base_url: https://docker.example.com
   include_hidden: false
 ```
 
 ### `docker_overview` options
 
-Each key is optional, and a pill only renders when its entity exists and has a usable state. An unavailable sensor disappears rather than showing a dash.
+Each key is optional, and every pill is independent it renders when its entity exists and has a usable state, and quietly disappears when it does not. One unavailable sensor never hides the others, and if all of them are unavailable the grid disappears while the container list carries on as normal.
 
 | Option | Shown as | Description |
 | --- | --- | --- |
@@ -289,6 +292,17 @@ containers:
 
 Discovery only re-runs when the registries actually change, not on every state update, so a container added in Portainer appears without a dashboard reload. If your Home Assistant does not expose the registries to custom cards, the card logs a warning and falls back to whatever `containers:` you wrote.
 
+#### Custom Portainer URL
+
+Each discovered row links back to its container in Portainer, using the URL the integration was set up with  an local address like `http://192.168.1.10:9000`. If you reach Portainer somewhere else, point `base_url` at it:
+
+```yaml
+auto_discover:
+  base_url: https://docker.example.com
+```
+
+Only the scheme and host are replaced; the container route is kept, so `http://192.168.1.10:9000/#!/2/docker/containers/abc` becomes `https://docker.example.com/#!/2/docker/containers/abc`.
+
 ### Container actions
 
 <picture>
@@ -303,6 +317,17 @@ The switch starts and stops the container. Everything else sits behind a single 
 | `auto` (default) | One available action renders as a direct icon button — a menu would cost the same width and an extra click. Two or more collapse into the `⋮` menu |
 | `none` | Always use the menu, even for a single action |
 | an action name | That action gets the button, the rest go in the menu. `restart` yields to `Resume` on a paused container |
+
+`primary_action` and `actions` are card-level options that apply to every container, and either can be overridden on an individual container:
+
+```yaml
+type: custom:docker-card
+auto_discover: true
+primary_action: restart          # every row gets a restart button
+containers:
+  - name: frigate
+    primary_action: none         # …except this one, which keeps everything in the menu
+```
 
 **Actions appear only when they can run.** The card reads each action entity's own availability, and Portainer already marks a button `unavailable` when the action does not apply. You cannot pause a stopped container, or restart a paused one. A container with no available actions shows no button at all.
 

@@ -10,6 +10,7 @@ A simple Lovelace card that lets you monitor and control your Docker containers 
 - Start, stop, restart, pause, resume, kill and recreate from one compact menu, with confirmation on the destructive ones
 - Image-update badge per container, installable from the card
 - Auto-discovery from the Portainer integration — one line of YAML builds the whole card
+- Custom base URL so container links point at your own domain, not Portainer's internal address
 - Optional grouping by Docker Compose stack, with a switch for the whole stack
 - Optional per-container icons
 - Theme-aware styling with configurable running vs not-running colors
