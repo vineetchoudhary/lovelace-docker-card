@@ -1,30 +1,61 @@
 # Docker Card
 
-A simple Lovelace card that lets you view and control your Docker containers from Home Assistant. When paired with the official Home Assistant Portainer integration, every entity shown below already exists (no templates or shell commands required). Drop the card into your dashboard and manage containers without leaving Home Assistant.
+A Lovelace card to monitor and control your Docker containers from Home Assistant. Point it at the official [Portainer integration](https://www.home-assistant.io/integrations/portainer/) and it builds itself, every container, its controls, resource usage and image updates, with no templates or shell commands.
 
-![](/screenshots/screenshot.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/hero-dark.png">
+  <img alt="Docker Card" src="screenshots/hero-light.png">
+</picture>
+
+## Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+  - [With Portainer (auto-discovery)](#with-portainer-auto-discovery)
+  - [Without auto-discovery](#without-auto-discovery)
+- [Configuration reference](#configuration-reference)
+  - [Card options](#card-options)
+  - [`auto_discover` options](#auto_discover-options)
+  - [`docker_overview` options](#docker_overview-options)
+  - [Container options](#container-options)
+- [Features in depth](#features-in-depth)
+  - [Auto-discovery](#auto-discovery)
+  - [Container actions](#container-actions)
+  - [Image updates](#image-updates)
+  - [CPU, memory and extra entities](#cpu-memory-and-extra-entities)
+  - [Icons](#icons)
+  - [Grouping by stack](#grouping-by-stack)
+  - [Container states](#container-states)
+  - [Hiding the container list](#hiding-the-container-list)
+  - [Styling and theming](#styling-and-theming)
+- [Exposing Docker without Portainer](#exposing-docker-without-portainer)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [License](#license)
 
 ## Features
 
-- Compact overview of your Docker host
-- Auto-updating container list with live state badges and control actions
-- Per-container CPU and memory usage, plus any other entity you want on the row
-- Start, stop, restart, pause, resume, kill and recreate, with confirmation on the destructive ones
+- **Auto-discovery:** one line of YAML builds the whole card from the Portainer integration
+- Compact overview of your Docker host: container counts, image count, version, OS and daemon state
+- Start, stop, restart, pause, resume, kill and recreate
 - Image-update badge per container, installable from the card
-- Auto-discovery: point it at the Portainer integration and it builds the whole card for you
-- Optional per-container icons
+- Per-container CPU and memory usage, plus any other entity you want on the row
+- Optional grouping by Compose stack, with a switch for the whole stack
+- Optional per-container icons and health badges
 - Theme-aware styling with configurable running vs not-running accent colors
-- Works out-of-the-box with entities provided by the Portainer integration; also supports any toggle-friendly domains (`switch`, `input_boolean`, `light`, etc.)
-- Optional tap/hold actions per container row for quick navigation, service calls, or external links
+- Tap and hold actions per row for more-info, navigation, URLs or service calls
 
 ## Requirements
 
-- Home Assistant 2025.8 or newer
-- Docker managed via the official Portainer integration (provides all referenced sensors, switches, and buttons)
-- Optional: For non-Portainer environments, equivalent entities (sensors, binary_sensors, switches, scripts, etc.) that expose Docker data and operations
+- Latest version of Home Assistant
+- Docker managed via the official **Portainer** integration
+- Or, for non-Portainer setups, equivalent entities you create yourself
+  (see [Exposing Docker without Portainer](#exposing-docker-without-portainer))
 
-> [!IMPORTANT]   
-> This card **does not** fetch Docker data directly. It visualises data exposed through the standard Home Assistant entity model. Example helpers are included below for non-Portainer setups; if you already use the Home Assistant Portainer integration, you can plug its entities directly into the card.
+> [!IMPORTANT]
+> This card **does not** talk to Docker directly. It visualises entities exposed through the standard Home Assistant entity model.
 
 ## Installation
 
@@ -43,197 +74,293 @@ Installation is easiest via the [Home Assistant Community Store (HACS)](https://
    ```
 3. Reload the browser cache (`Ctrl/Cmd + Shift + R`).
 
-### Example Configuration
-Basic card setup (YAML) using entities exposed by the Portainer integration:
+## Quick start
+
+### With Portainer (auto-discovery)
+
+Install the **Portainer** integration (Settings → Devices & Services → + → Portainer), then add a manual card with this configuration:
 
 ```yaml
 type: custom:docker-card
-title: Docker @ MyServer
-containers_expanded: false
+title: Docker @ homelab
+auto_discover: true
+containers_expanded: true
+```
+
+That is the whole card. Every container is found automatically, along with its state sensor, switch, lifecycle buttons, image-update entity, CPU, memory and health sensors.
+
+From there, refine it as much as you like:
+
+```yaml
+type: custom:docker-card
+title: Docker @ homelab
+containers_expanded: true
+group_by: stack                 # group containers under their Compose stack
+show_icons: true                # give every row an icon
+auto_discover:
+  endpoint: Local               # limit to one Portainer endpoint
+  exclude: ["*-db", "watchtower"]
+  sort: name
+containers:                     # optional per-container tweaks, matched by name
+  - name: zigbee2mqtt
+    icon: mdi:zigbee
+```
+
+### Without auto-discovery
+
+Every option can also be wired up by hand. It is useful for non-portainer setups, or when you want a curated list rather than everything:
+
+```yaml
+type: custom:docker-card
+title: Docker @ homelab
+containers_expanded: true
 docker_overview:
+  status: binary_sensor.docker_daemon_status
   container_count: sensor.docker_containers_total
   containers_running: sensor.docker_containers_running
   containers_stopped: sensor.docker_containers_stopped
-  docker_version: sensor.docker_version
   image_count: sensor.docker_images
+  docker_version: sensor.docker_version
   operating_system: sensor.host_os
   operating_system_version: sensor.host_os_version
-  status: binary_sensor.docker_daemon_status
-running_color: "var(--state-active-color)"
-not_running_color: "#c22040"
 containers:
   - name: Home Assistant
-    status_entity: sensor.docker_homeassistant_status
-    control_entity: switch.docker_homeassistant
-    restart_entity: switch.docker_restart_homeassistant
-    cpu_entity: sensor.docker_homeassistant_cpu
-    memory_entity: sensor.docker_homeassistant_memory
-    tap_action:
-      action: more-info
-      entity: binary_sensor.docker_homeassistant_status
-    hold_action:
-      action: url
-      url_path: https://portainer.local/#!/2/docker/containers/homeassistant
+    icon: mdi:home-assistant
+    status_entity: sensor.homeassistant_state
+    control_entity: switch.homeassistant
+    restart_entity: button.homeassistant_restart
+    cpu_entity: sensor.homeassistant_cpu
+    memory_entity: sensor.homeassistant_memory
   - name: Node-RED
-    status_entity: sensor.docker_nodered_status
-    control_entity: switch.docker_nodered
-    restart_entity: button.docker_restart_nodered
-    cpu_entity: sensor.docker_nodered_cpu
-    memory_entity: sensor.docker_nodered_memory
-    tap_action:
-      action: toggle
-      entity: switch.docker_nodered
-    hold_action:
-      action: call-service
-      service: script.trigger_container_diagnostics
+    icon: mdi:sitemap
+    status_entity: sensor.nodered_state
+    control_entity: switch.nodered
+    restart_entity: button.nodered_restart
 ```
 
-![](/screenshots/screenshot-expanded.png)
+## Configuration reference
 
-## Quick Start (Portainer integration)
-
-1. Install the **Portainer** integration and complete its setup wizard (Settings → Devices & Services → + → Portainer).
-2. Confirm entities such as `sensor.docker_containers_running`, `switch.docker_<container>`, `button.docker_restart_<container>`, and the per-container CPU/memory sensors exist.
-3. Add the YAML snippet above to your dashboard (Edit Dashboard → Add Card → Manual → paste YAML).
-4. Optionally tweak `running_color` or `not_running_color` to match your theme.
-
-You now have an interactive Docker control panel that stays in sync with Portainer.
-
-### Supported options
-
-#### Card
+### Card options
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `title` | No | Override the card header (defaults to “Docker Card”) |
-| `containers_expanded` | No | Set `true` to expand or `false` (default) to collapse the container list on initial load |
-| `show_containers` | No | `auto` (default), `true` or `false` — see [Hiding the container list](#hiding-the-container-list) |
-| `show_icons` | No | `auto` (default), `true` or `false` — see [Icons](#icons) |
-| `auto_discover` | No | Build the card from the Portainer integration — see [Auto-discovery](#auto-discovery) |
-| `primary_action` | No | Which action gets its own button rather than living in the menu. `auto` (default), `none`, or an action name — see [Container actions](#container-actions) |
-| `actions` | No | Which actions may appear at all. Defaults to all of them |
-| `confirm_actions` | No | Actions needing a second click to fire. Defaults to `kill`, `recreate`, `update`; `[]` disables |
+| `type` | **Yes** | `custom:docker-card` |
+| `auto_discover` | Conditional | `true`, or a map of [options](#auto_discover-options). Required unless you list `containers` yourself |
+| `containers` | Conditional | List of containers, or a single container object. Required unless `auto_discover` is set; may also refine discovered rows |
+| `title` | No | Card header. Defaults to “Docker Card” |
+| `containers_expanded` | No | `true` to expand the container list on load, `false` (default) to collapse it |
+| `docker_overview` | No | Host stats to show, see [options](#docker_overview-options). Filled in by auto-discovery |
+| `group_by` | No | `none` (default) or `stack` — see [Grouping by stack](#grouping-by-stack) |
+| `stacks` | No | Per-stack settings keyed by stack name, e.g. `media: { control_entity: switch.media_stack }` |
+| `primary_action` | No | `auto` (default), `none`, or an action name — see [Container actions](#container-actions) |
+| `actions` | No | Which actions may be offered at all. Defaults to all of them |
+| `confirm_actions` | No | Actions needing a second click. Defaults to `kill`, `recreate`, `update`; `[]` disables |
+| `show_containers` | No | `auto` (default), `true`, `false` — see [Hiding the container list](#hiding-the-container-list) |
+| `show_icons` | No | `auto` (default), `true`, `false` — see [Icons](#icons) |
 | `show_update_badge` | No | `false` hides the image-update badge |
 | `show_health` | No | `false` hides the health badge |
 | `show_host_actions` | No | `false` hides the header menu with the prune buttons |
-| `group_by` | No | `none` (default) or `stack` — see [Grouping by stack](#grouping-by-stack) |
-| `stacks` | No | Per-stack settings, keyed by stack name (see below) |
-| `transitional_states` | No | States treated as in-between. Defaults to `restarting, removing, paused, starting` |
-| `docker_overview` | No | Mapping of high-level stats to entity IDs (see below) |
-| `running_color` | No | Global border/accent color for running containers and status pill |
-| `not_running_color` | No | Global border/accent color for containers that are not running |
-| `running_states` | No | Global list of states that count as “running”. Defaults to `running, on, started, up`. Matching is case-insensitive |
-| `stopped_states` | No | Global list of states that count as “stopped”. Defaults to `stopped, off, exited, down, inactive, dead, created` |
-| `stopped_color` | Legacy | Backwards compatible alias for `not_running_color` |
-| `containers` | Conditional | List of containers, or a single container object (see below). Not needed when `auto_discover` is set |
+| `running_color` | No | Accent color for running containers and the status pill |
+| `not_running_color` | No | Accent color for containers that are not running |
+| `running_states` | No | States counting as “running”. Defaults to `running, on, started, up` |
+| `stopped_states` | No | States counting as “stopped”. Defaults to `stopped, off, exited, down, inactive, dead, created` |
+| `transitional_states` | No | States counting as in-between. Defaults to `restarting, removing, paused, starting` |
+| `stopped_color` | Legacy | Alias for `not_running_color` |
 
-#### `docker_overview`
+### `auto_discover` options
 
-Each key is optional. A pill is only rendered when its entity exists and has a usable state, so an
-unavailable sensor disappears rather than showing a dash.
+`auto_discover: true` is shorthand for all defaults. Pass a map to narrow it down — every key is
+optional:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `integration` | `portainer` | Integration to read containers from. Devices and entities belonging to any other integration are ignored |
+| `endpoint` | *all* | Limit to one Portainer endpoint, by device name or device id. With several endpoints and no value set, containers from all of them are listed but the overview is skipped |
+| `stack` | *all* | Only containers belonging to this stack, by stack name or device id |
+| `area` | *all* | Only containers in this area, by area name, alias or id |
+| `include` | *all* | Name globs to include, e.g. `["media-*", "*arr"]`. `*` and `?` are supported |
+| `exclude` | *none* | Name globs to exclude. Exclusions win over inclusions |
+| `sort` | `name` | Row order: `name`, `state` or `cpu` (busiest first) |
+| `overview` | `true` | Fill `docker_overview` from the endpoint device. A `docker_overview` you write yourself always wins |
+| `link_to_portainer` | `true` | Give each row a `hold_action` opening that container's page in Portainer |
+| `include_hidden` | `false` | Include entities hidden in the Home Assistant entity registry |
+
+```yaml
+auto_discover:
+  integration: portainer
+  endpoint: Local
+  stack: media
+  area: Server rack
+  include: ["*"]
+  exclude: ["*-db", "watchtower"]
+  sort: cpu
+  overview: true
+  link_to_portainer: true
+  include_hidden: false
+```
+
+### `docker_overview` options
+
+Each key is optional, and a pill only renders when its entity exists and has a usable state. An unavailable sensor disappears rather than showing a dash.
 
 | Option | Shown as | Description |
 | --- | --- | --- |
-| `status` | Header pill | Overall daemon state. `on`/`running`/`online`/`ok`/`ready` reads **Online**, `off`/`offline`/`error`/`problem`/`down` reads **Offline**, anything else is treated as idle |
-| `container_count` | Running / Total | Total number of containers |
-| `containers_running` | Running / Total | Number of running containers. The pill turns the not-running color when running ≠ total |
-| `containers_stopped` | Running / Total | Number of stopped containers. Used to derive the total when `container_count` is not configured |
-| `image_count` | Images | Number of Docker images |
+| `status` | Header pill | Daemon state. `on`/`running`/`online`/`ok`/`ready` reads **Online**, `off`/`offline`/`error`/`problem`/`down` reads **Offline**, anything else is idle |
+| `container_count` | Running / Total | Total containers |
+| `containers_running` | Running / Total | Running containers. The pill turns the not-running color when running ≠ total |
+| `containers_stopped` | Running / Total | Stopped containers. Used to derive the total when `container_count` is absent |
+| `image_count` | Images | Number of images |
 | `docker_version` | Docker | Docker version |
-| `operating_system` | OS | Host operating system |
-| `operating_system_version` | OS | Host OS version, joined to the name as `name · version` |
+| `operating_system` | OS | Host OS |
+| `operating_system_version` | OS | Host OS version, joined as `name · version` |
 | `prune_images` | Header menu | Button that prunes unused images |
 | `prune_volumes` | Header menu | Button that prunes unused volumes |
 
-#### `containers[]`
+### Container options
 
-| Option | Required | Description |
-| --- | --- | --- |
-| `name` | No | Friendly label (defaults to the status entity's friendly name) |
-| `icon` | No | Icon shown before the name, e.g. `mdi:calendar`. `none` hides it for this row — see [Icons](#icons) |
-| `stack` | No | Stack this container belongs to, used by `group_by: stack`. Filled in automatically by auto-discovery |
-| `status_entity` | Preferably | Entity whose state represents the container status |
-| `control_entity` | Conditional | Entity that supports `turn_on`/`turn_off` (`switch`, `input_boolean`, `light`, `fan`, `script`, `automation`) to start/stop the container |
-| `control_domain` | No | Override domain name when the entity uses a custom namespace |
-| `start_service` / `stop_service` | Conditional | Service to call instead of `control_entity`, as `domain.service` or an object with `domain`, `service` and optional `data`/`entity_id`/`target` |
-| `restart_entity` | No | Entity to trigger a restart. `button` → `press`, `script`/`switch` → `turn_on`, `automation` → `trigger` |
-| `pause_entity` | No | Entity that pauses the container |
-| `resume_entity` | No | Entity that resumes a paused container |
-| `kill_entity` | No | Entity that kills the container |
-| `recreate_entity` | No | Entity that recreates the container |
-| `update_entity` | No | `update` entity for the container image — see [Image updates](#image-updates) |
-| `update_action` | No | What the update badge does: `more-info` (default), `install` or `none` |
-| `health_entity` | No | Sensor reporting `healthy` / `unhealthy` / `starting`, shown as a badge |
-| `<action>_domain` | No | Override the domain for any action entity |
-| `<action>_service` | No | Call a service instead of pressing an entity, for any action |
-| `primary_action` | No | Per-container override of the card-level `primary_action` |
-| `actions` | No | Per-container override of the card-level `actions` list |
-| `cpu_entity` | No | Sensor holding the container's CPU usage — see [CPU and memory usage](#cpu-and-memory-usage) |
-| `memory_entity` | No | Sensor holding the container's memory usage |
-| `extra_entities` | No | Any other entities to show on the detail line — see [Extra entities](#extra-entities) |
-| `running_color` | No | Per-container override for the running border/accent color |
-| `not_running_color` | No | Per-container override for the not-running border/accent color |
-| `running_states` | No | Custom list of states that count as “running” for this container |
-| `stopped_states` | No | Custom list of states that count as “stopped” for this container |
-| `tap_action` | No | Action to run when the row is tapped/clicked (standard Lovelace action object) |
-| `hold_action` | No | Action to run on hold/long-press (supports the same syntax as `tap_action`) |
-| `hold_delay` | No | Hold detection delay in milliseconds (defaults to 500) |
-| `id` | No | Stable identifier for the row. Only needed if two containers share the same name and entities |
-| `switch_entity` | Legacy | Backwards compatible alias for `control_entity` |
-| `switch_domain` | Legacy | Backwards compatible alias for `control_domain` |
-| `stopped_color` | Legacy | Backwards compatible alias for `not_running_color` |
+| Option | Description |
+| --- | --- |
+| `name` | Label for the row. Defaults to the status entity's friendly name |
+| `icon` | Icon before the name, e.g. `mdi:calendar`. `none` hides it for this row |
+| `status_entity` | Entity whose state represents the container status |
+| `control_entity` | Entity supporting `turn_on`/`turn_off` (`switch`, `input_boolean`, `light`, `fan`, `script`, `automation`) used to start and stop |
+| `start_service` / `stop_service` | Services to call instead of `control_entity`, as `domain.service` or an object with `domain`, `service` and optional `data`/`entity_id`/`target` |
+| `restart_entity` | Entity that restarts the container. `button` → `press`, `script`/`switch` → `turn_on`, `automation` → `trigger` |
+| `pause_entity` | Entity that pauses the container |
+| `resume_entity` | Entity that resumes a paused container |
+| `kill_entity` | Entity that kills the container |
+| `recreate_entity` | Entity that recreates the container |
+| `<action>_domain` | Override the domain used for any action entity |
+| `<action>_service` | Call a service instead of pressing an entity, for any action |
+| `update_entity` | `update` entity for the container image |
+| `update_action` | What the update badge does: `more-info` (default), `install`, `none` |
+| `health_entity` | Sensor reporting `healthy` / `unhealthy` / `starting` |
+| `cpu_entity` | Sensor holding CPU usage |
+| `memory_entity` | Sensor holding memory usage |
+| `extra_entities` | Any other entities to show on the row — string, or `{entity, name, icon}` |
+| `stack` | Stack this container belongs to, used by `group_by: stack`. Set by auto-discovery |
+| `primary_action` / `actions` | Per-container overrides of the card-level settings |
+| `running_states` / `stopped_states` / `transitional_states` | Per-container state lists |
+| `running_color` / `not_running_color` | Per-container accent overrides |
+| `tap_action` / `hold_action` | Standard Lovelace actions: `more-info` (default), `toggle`, `navigate`, `url`, `call-service`, `fire-dom-event`, `none` |
+| `hold_delay` | Hold detection delay in ms. Defaults to 500 |
+| `id` | Stable row identifier. Only needed when two containers share a name and entities |
+| `switch_entity` / `switch_domain` / `stopped_color` | Legacy aliases for `control_entity` / `control_domain` / `not_running_color` |
 
-Supported `tap_action` / `hold_action` values are `more-info` (default), `toggle`, `navigate`, `url`, `call-service`, `fire-dom-event` and `none`. `more-info` defaults to the container's `status_entity`; `toggle` defaults to its `control_entity`.
+> [!TIP]
+> `sensor` and `binary_sensor` entities are read-only. Use a `switch`, `input_boolean` or similar for `control_entity`, or the row's switch stays disabled.
 
-> Tip: `binary_sensor` and `sensor` entities are read-only. Use a `switch`, `input_boolean`, `light`, or similar domain for `control_entity` so the card can call `turn_on`/`turn_off` — otherwise the row's switch stays disabled.
+## Features in depth
 
-Color settings fall back to Home Assistant theme values (`var(--state-active-color)`, `var(--state-error-color)`) when omitted. Legacy keys `stopped_color` and `containers[].stopped_color` still map to the new not-running color options for backward compatibility.
-
-## CPU and memory usage
-
-Point `cpu_entity` and `memory_entity` at any numeric sensor and the values appear as a small line
-under the container's status:
+### Auto-discovery
 
 ```yaml
-containers:
-  - name: Home Assistant
-    status_entity: sensor.docker_homeassistant_status
-    control_entity: switch.docker_homeassistant
-    cpu_entity: sensor.docker_homeassistant_cpu
-    memory_entity: sensor.docker_homeassistant_memory
+type: custom:docker-card
+auto_discover: true
+containers_expanded: true
 ```
 
-Values follow the sensor's own `unit_of_measurement`: a `%` sensor (or one with no unit) renders as
-`38.5%`, anything else keeps its unit — `512 MB`. Sensors that are `unknown`, `unavailable` or
-non-numeric are skipped, and a container with neither sensor shows no resource line at all.
+The card reads Home Assistant's device and entity registries, finds every device belonging to the Portainer integration, and maps its entities onto the card:
 
-## Extra entities
+| Discovered | Used as |
+| --- | --- |
+| Container state sensor | Row status |
+| Container switch | Start / stop |
+| Restart, pause, resume, kill, recreate buttons | [Container actions](#container-actions) |
+| Image update entity | [Update badge](#image-updates) |
+| CPU, memory and health sensors | [Resource line](#cpu-memory-and-extra-entities) and health badge |
+| Image sensor | Extra entity on the row |
+| Stack device | [Grouping](#grouping-by-stack) and the stack switch |
+| Endpoint device | `docker_overview` and the prune buttons |
 
-`cpu_entity` and `memory_entity` are shorthands for the two most common cases. Anything else you want on
-that line goes in `extra_entities`:
+Entities are matched on the integration's `translation_key`, never on entity IDs — IDs are generated from names in your own language, so a German or French install discovers exactly the same way.
+
+Discovered rows can still be refined by hand. A `containers:` entry whose `name` matches a discovered container is merged on top of it, and anything that matches nothing is kept as an ordinary manual row:
+
+```yaml
+auto_discover: true
+containers:
+  - name: zigbee2mqtt        # refines the discovered row
+    icon: mdi:zigbee
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/zigbee
+```
+
+Discovery only re-runs when the registries actually change, not on every state update, so a container added in Portainer appears without a dashboard reload. If your Home Assistant does not expose the registries to custom cards, the card logs a warning and falls back to whatever `containers:` you wrote.
+
+### Container actions
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/actions-dark.png">
+  <img alt="Container actions" src="screenshots/actions-light.png">
+</picture>
+
+The switch starts and stops the container. Everything else sits behind a single `⋮` button, so the row keeps its width no matter how many actions a container supports.
+
+| `primary_action` | Behaviour |
+| --- | --- |
+| `auto` (default) | One available action renders as a direct icon button — a menu would cost the same width and an extra click. Two or more collapse into the `⋮` menu |
+| `none` | Always use the menu, even for a single action |
+| an action name | That action gets the button, the rest go in the menu. `restart` yields to `Resume` on a paused container |
+
+**Actions appear only when they can run.** The card reads each action entity's own availability, and Portainer already marks a button `unavailable` when the action does not apply. You cannot pause a stopped container, or restart a paused one. A container with no available actions shows no button at all.
+
+`kill`, `recreate` and `update` ask for confirmation: the menu item arms on the first click and fires on the second, disarming after a few seconds. Change that with `confirm_actions`, or set `confirm_actions: []` to fire immediately. Host-level prune buttons live behind a `⋮` in the card header and are confirm-gated the same way.
+
+For non-Portainer setups every action takes a plain service instead:
 
 ```yaml
 containers:
   - name: Zigbee2MQTT
     status_entity: sensor.zigbee2mqtt_state
-    cpu_entity: sensor.zigbee2mqtt_cpu_usage_total
-    memory_entity: sensor.zigbee2mqtt_memory_usage_percentage
-    extra_entities:
-      - sensor.zigbee2mqtt_image                  # string form
-      - entity: sensor.zigbee2mqtt_health         # object form
-        name: Health                              # optional label override
-        icon: mdi:heart-pulse                     # optional; replaces the text label
+    restart_service: shell_command.docker_restart_z2m
+    pause_service: shell_command.docker_pause_z2m
 ```
 
-- Extras render after CPU and memory, in the order you list them.
-- Non-numeric states are shown as-is, so image tags and version strings survive intact. Numeric states
-  follow the same unit rules as above, except that an extra with no unit is shown as a plain number
-  rather than assumed to be a percentage.
-- The label defaults to the entity's friendly name with the container name stripped off the front, so
-  `Zigbee2MQTT Image` becomes `Image`. Use `name` to override it or `icon` to replace it.
-- Long values are truncated; the full `label: value` is always in the tooltip.
+### Image updates
 
-## Icons
+Point `update_entity` at an `update` entity and a container with a pending image update shows an **Update** badge next to its name:
+
+```yaml
+containers:
+  - name: Home Assistant
+    status_entity: sensor.homeassistant_state
+    update_entity: update.homeassistant_image
+    update_action: more-info      # more-info (default) | install | none
+```
+
+Clicking the badge opens the more-info dialog, which is where Home Assistant offers its own install button. `update_action: install` installs directly instead, and the `⋮` menu always carries an explicit **Update** item. While an install runs the row is marked pending and shows `Installing… 42%` when the entity reports progress. This progress comes from the entity, not a timer, so it stays accurate for a recreate that takes minutes.
+
+> Portainer reports image versions as sha256 digests rather than version numbers, so the card never prints them inline; the before/after digests are truncated into the badge's tooltip.
+
+### CPU, memory and extra entities
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/resources-dark.png">
+  <img alt="Resource line" src="screenshots/resources-light.png">
+</picture>
+
+`cpu_entity` and `memory_entity` are shorthands for the two most common cases. Anything else goes in `extra_entities`:
+
+```yaml
+containers:
+  - name: Home Assistant
+    status_entity: sensor.homeassistant_state
+    cpu_entity: sensor.homeassistant_cpu
+    memory_entity: sensor.homeassistant_memory
+    extra_entities:
+      - sensor.homeassistant_image                # string form
+      - entity: sensor.homeassistant_health       # object form
+        icon: mdi:heart-pulse                     # replaces the text label
+```
+
+- Numeric values follow the sensor's own `unit_of_measurement`: a `%` sensor renders as `38.5%`, anything else keeps its unit `512 MB`. CPU and memory with no unit are assumed to be percentages; an extra entity with no unit is shown as a plain number.
+- Non-numeric states are shown as-is, so image tags and version strings survive intact.
+- Labels default to the entity's friendly name with the container name stripped off the front, so `Home Assistant Image` reads `Image`. Use `name` to override, or `icon` to replace it.
+- `unknown`, `unavailable` and missing entities are skipped. With nothing usable, the line disappears.
+
+### Icons
 
 ```yaml
 show_icons: true
@@ -243,120 +370,24 @@ containers:
     status_entity: sensor.calendar_state
 ```
 
-The icon sits before the container name and takes the row's running / not-running accent color. Per row
-it resolves in this order: `containers[].icon` → the status entity's `icon` attribute → the control
-entity's `icon` attribute → `mdi:docker`. Set `icon: none` to opt a single row out.
+The icon sits before the name and takes the row's running / not-running color. Per row it resolves as `containers[].icon` → the status entity's `icon` attribute → the control entity's `icon` attribute → `mdi:docker`. Set `icon: none` to opt a single row out.
 
 | `show_icons` | Behaviour |
 | --- | --- |
-| `auto` (default) | Only show icons that are actually configured, either through `containers[].icon` or a custom `icon` on the entity. Existing dashboards are unchanged |
+| `auto` (default) | Only icons you actually configured, either through `containers[].icon` or a custom `icon` on the entity. Existing dashboards are unchanged |
 | `true` | Always show one, falling back to `mdi:docker` |
 | `false` | Never show icons, even where `icon` is set |
 
 When any row has an icon, rows without one reserve the same space so the list stays aligned.
 
-## Hiding the container list
+### Grouping by stack
 
-```yaml
-type: custom:docker-card
-show_containers: false     # overview-only card
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/stacks-dark.png">
+  <img alt="Grouped by stack" src="screenshots/stacks-light.png">
+</picture>
 
-| `show_containers` | Behaviour |
-| --- | --- |
-| `auto` (default) | Hides the “Containers” section when there are no containers **and** the card still has an overview to show |
-| `true` | Always render the section, including the “No containers configured.” hint |
-| `false` | Never render it |
-
-`auto` only hides the section when the card has something else to display — with no containers *and* no
-overview the hint stays, so a broken configuration is visible instead of rendering as an empty box.
-
-## Container actions
-
-Every container supports the same set of lifecycle actions. Each one takes an entity (pressed through
-`button.press`, `switch.turn_on`, `script.turn_on` or `automation.trigger` depending on its domain), or a
-service if you would rather call one directly:
-
-```yaml
-containers:
-  - name: Zigbee2MQTT
-    status_entity: sensor.zigbee2mqtt_state
-    control_entity: switch.zigbee2mqtt_container
-    restart_entity: button.zigbee2mqtt_restart_container
-    pause_entity: button.zigbee2mqtt_pause_container
-    resume_entity: button.zigbee2mqtt_resume_container
-    kill_entity: button.zigbee2mqtt_kill_container
-    recreate_entity: button.zigbee2mqtt_recreate_container
-    update_entity: update.zigbee2mqtt_image_update
-```
-
-The switch starts and stops the container. Everything else sits behind a single `⋮` button, so the row
-keeps its width no matter how many actions a container supports:
-
-| `primary_action` | Behaviour |
-| --- | --- |
-| `auto` (default) | One available action renders as a direct icon button — a menu would cost the same width and an extra click. Two or more collapse into the `⋮` menu |
-| `none` | Always use the menu, even for a single action |
-| an action name | That action gets the button, the rest go in the menu. `restart` automatically yields to `Resume` on a paused container |
-
-So a hand-written container with only `restart_entity` keeps its one-click restart button, while a
-Portainer container offering restart, pause, kill, recreate and update shows a single `⋮` instead of five
-buttons.
-
-**Actions appear only when they can run.** The card reads each action entity's own availability, and the
-Portainer integration already marks a button `unavailable` when the action does not apply — you cannot
-pause a stopped container, or restart a paused one. Nothing configured for an action means it is never
-offered, and a container with no available actions shows no button at all.
-
-`kill`, `recreate` and `update` ask for confirmation: the menu item arms on the first click and fires on
-the second, disarming itself after a few seconds. Change that with `confirm_actions`, or set
-`confirm_actions: []` to fire immediately.
-
-The prune buttons on the Docker host itself sit behind a `⋮` menu in the card header, and are
-confirm-gated the same way.
-
-## Image updates
-
-Point `update_entity` at an `update` entity and a container with a pending image update shows an
-**Update** badge next to its name:
-
-```yaml
-containers:
-  - name: Zigbee2MQTT
-    status_entity: sensor.zigbee2mqtt_state
-    update_entity: update.zigbee2mqtt_image_update
-    update_action: more-info      # more-info (default) | install | none
-```
-
-Clicking the badge opens the more-info dialog by default, which is where Home Assistant offers its own
-install button. `update_action: install` makes the badge install directly instead, and the `⋮` menu always
-carries an explicit **Update** item.
-
-While an install is running the row is marked pending and shows `Installing… 42%` when the entity reports
-progress. That comes from the entity, not a timer, so it stays accurate for a recreate that takes minutes.
-
-> Portainer reports image versions as sha256 digests rather than version numbers, so the card never prints
-> them inline — the before/after digests are truncated into the badge's tooltip.
-
-## Container states
-
-Docker containers are not simply running or stopped, so states fall into three buckets:
-
-| Bucket | Default states | Appearance |
-| --- | --- | --- |
-| Running | `running`, `on`, `started`, `up` | Running accent color |
-| Stopped | `stopped`, `off`, `exited`, `down`, `inactive`, `dead`, `created` | Not-running accent color |
-| Transitional | `restarting`, `removing`, `paused`, `starting` | Warning color |
-
-Anything else is shown as-is with the not-running styling. The switch is disabled while a container is
-mid-flight (`restarting`, `removing`, `starting`), but stays usable when a container is merely `paused` —
-stopping a paused container is perfectly valid. Override any bucket with `running_states`,
-`stopped_states` or `transitional_states`, globally or per container.
-
-## Grouping by stack
-
-Set `group_by: stack` and containers are listed under a collapsible heading per stack, with a count and —
-where the stack exposes one — a switch that starts or stops the whole stack:
+`group_by: stack` lists containers under a collapsible heading per stack, with a count and a switch that starts or stops the whole stack:
 
 ```yaml
 type: custom:docker-card
@@ -365,19 +396,7 @@ group_by: stack
 containers_expanded: true
 ```
 
-```
-▾ MEDIA            3   ( )
-    Jellyfin        Running
-    Sonarr          Running
-    Radarr          Stopped
-▾ UNGROUPED        2   
-    Home Assistant  Running
-    Zigbee2MQTT     Running
-```
-
-Auto-discovery fills in each container's stack from the Portainer device tree, and picks up the stack's
-own switch. Without discovery you can group by hand with `containers[].stack`, and point the group switch
-at an entity yourself:
+Auto-discovery fills in each container's stack from the Portainer device tree and picks up the stack's switch. Without discovery, group by hand and point the switch at an entity yourself:
 
 ```yaml
 group_by: stack
@@ -392,82 +411,63 @@ containers:
     status_entity: sensor.homeassistant_state
 ```
 
-- Groups are sorted by name; containers with no stack collect under **Ungrouped**, always last.
-- Each group collapses independently, and stays collapsed across state updates.
-- A configured `stacks:` entry overrides whatever discovery found for the same stack name.
-- If nothing has a stack, the card renders a flat list as usual, so turning `group_by` on is never
-  destructive.
+Groups sort by name, containers with no stack collect under **Ungrouped** (always last), and each group collapses independently. If nothing has a stack the card renders a flat list, so turning `group_by` on is never destructive.
 
-## Auto-discovery
+### Container states
 
-Rather than listing containers by hand, let the card read them from the Portainer integration:
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/states-dark.png">
+  <img alt="Container states" src="screenshots/states-light.png">
+</picture>
+
+Docker containers are not simply running or stopped, so states fall into three buckets:
+
+| Bucket | Default states | Appearance |
+| --- | --- | --- |
+| Running | `running`, `on`, `started`, `up` | Running accent color |
+| Stopped | `stopped`, `off`, `exited`, `down`, `inactive`, `dead`, `created` | Not-running accent color |
+| Transitional | `restarting`, `removing`, `paused`, `starting` | Warning color |
+
+Anything else is shown as-is with the not-running styling. The switch is disabled while a container is mid-flight (`restarting`, `removing`, `starting`) but stays usable when it is merely `paused` — stopping a paused container is perfectly valid. Override any bucket with `running_states`, `stopped_states` or `transitional_states`, globally or per container.
+
+### Hiding the container list
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/overview-dark.png">
+  <img alt="Overview only and collapsed" src="screenshots/overview-light.png">
+</picture>
+
+| `show_containers` | Behaviour |
+| --- | --- |
+| `auto` (default) | Hides the section when there are no containers **and** the card still has an overview to show |
+| `true` | Always render it, including the “No containers configured.” hint |
+| `false` | Never render it — an overview-only card |
 
 ```yaml
 type: custom:docker-card
-title: Docker @ MyServer
-auto_discover: true
-containers_expanded: true
+show_containers: false
+docker_overview:
+  status: binary_sensor.docker_daemon_status
+  container_count: sensor.docker_containers_total
+  containers_running: sensor.docker_containers_running
 ```
 
-That is the whole configuration. The card finds every container, wires up its state sensor, switch,
-lifecycle buttons, update entity, CPU/memory/health sensors and image name, records which stack each one
-belongs to, fills the host overview from the Portainer endpoint, and links each row back to its page in
-Portainer on long-press.
+`auto` only hides the section when the card has something else to display — with no containers *and* no overview the hint stays, so a broken configuration is visible instead of a blank box.
 
-Narrow it down when you need to:
+### Styling and theming
 
-```yaml
-auto_discover:
-  integration: portainer     # default
-  endpoint: Local            # endpoint device name or id; omit to include every endpoint
-  stack: media               # only containers belonging to this stack
-  area: Server rack          # area name, alias or id
-  include: ["*"]             # name globs; * and ? are supported
-  exclude: ["*-db", "watchtower"]
-  sort: name                 # name (default) | state | cpu
-  link_to_portainer: true    # default hold_action → the container's Portainer page
-  overview: true             # also fill docker_overview from the endpoint device
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/themes-dark.png">
+  <img alt="Light and dark" src="screenshots/themes-light.png">
+</picture>
 
-Discovered rows can still be refined by hand. A `containers:` entry whose `name` matches a discovered
-container is merged on top of it, and anything that matches nothing is kept as an ordinary manual row:
-
-```yaml
-auto_discover: true
-containers:
-  - name: zigbee2mqtt        # matches the discovered container
-    icon: mdi:zigbee
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/zigbee
-```
-
-Notes:
-
-- Entities are matched on the integration's `translation_key`, never on entity IDs — entity IDs are
-  generated from names in your own language, so a German or French install discovers exactly the same way.
-- Hidden and disabled entities and devices are skipped. `include_hidden: true` opts the hidden ones in.
-- Discovery only re-runs when Home Assistant's entity or device registry actually changes, not on every
-  state update, so a container added in Portainer appears without a dashboard reload.
-- If your Home Assistant does not expose the registries to custom cards, the card logs a warning and falls
-  back to whatever `containers:` you configured, rather than failing.
-- With several Portainer endpoints and no `endpoint:` set, containers from all of them are listed but the
-  overview is left out, since there is no single host to describe.
-
-## Styling and customization
-
-- **Accent colors:** Override `running_color` and `not_running_color` globally, or set per-container overrides to highlight critical services.
-- **Running/Total highlight:** The "Running / Total" overview pill turns the not-running color whenever the counts diverge—handy for spotting issues at a glance.
-- **Theme alignment:** The card inherits typography, spacing, and background from your current Home Assistant theme, so it stays consistent without extra work.
-- **Resource line:** CPU and memory only take up space when you configure them, so a mixed dashboard can show usage for the containers you care about and stay compact for the rest.
-- **Compact controls:** actions are round icon buttons rather than text labels, and collapse into a single `⋮` menu once there is more than one, so the row width stays the same whether a container offers one action or six. A restart button still carries the `restart-button` class, so existing `card_mod` styling keeps working.
+- **Accent colors:** override `running_color` and `not_running_color` globally, or per container to highlight critical services. They fall back to your theme (`--state-active-color`, `--state-error-color`) and then to the card's own defaults.
+- **Running/Total highlight:** the overview pill turns the not-running color whenever the counts diverge.
+- **Compact controls:** actions are round icon buttons and collapse into one `⋮` past the first, so the row width is the same whether a container offers one action or six. A restart button keeps the `restart-button` class, so existing `card_mod` styling still applies.
 - **Narrow columns:** below a card width of 360px the switch and buttons drop to their own line instead of squeezing the container name.
+- **Theme alignment:** typography, spacing and background come from your current Home Assistant theme.
 
-## Exposing Docker to Home Assistant
-
-If you rely on the Portainer integration you already have everything you need—just reference its entities in the card configuration above.
-
-### Without Portainer
+## Exposing Docker without Portainer
 
 For environments that do not use Portainer, the example below shows how to surface equivalent entities with `command_line` sensors and `shell_command` helpers. Adjust container names to match your setup.
 
@@ -582,20 +582,21 @@ Once the entities above are available, wire them into the card configuration as 
 
 ## Troubleshooting
 
-- **Custom card not found:** Ensure the resource URL is registered (`/hacsfiles/...` for HACS, `/local/...` for manual installs) and hard-refresh the browser.
-- **Entities missing:** Double-check the Portainer integration is connected and that entity IDs in your YAML match the ones generated in Home Assistant.
-- **Colors not updating:** Reload the dashboard after updating `running_color`/`not_running_color`, and confirm there are no typos in the CSS variables or hex codes.
-- **Start/stop switch is greyed out:** The container has no `control_entity`, no `start_service`/`stop_service`, or points at a read-only entity such as a `sensor` or `binary_sensor`.
-- **CPU/memory line missing:** The sensor is `unknown`, `unavailable`, or non-numeric. Check its state in **Developer Tools → States**; a state like `7.24%` (with the unit baked into the state) is a string, not a number—strip the `%` in the sensor and set `unit_of_measurement` instead.
-- **Memory shown as a percentage when it isn't:** A sensor with no `unit_of_measurement` is assumed to be a percentage. Set the unit (`MB`, `MiB`, …) on the sensor.
-- **An action is missing from the ⋮ menu:** Either nothing is configured for it, or its entity is currently `unavailable` because the action does not apply to the container's state — Portainer marks pause unavailable on a stopped container, restart unavailable on a paused one, and so on.
-- **`auto_discover` finds nothing:** Confirm the Portainer integration is loaded and its devices exist under **Settings → Devices & Services**. The card only matches devices belonging to the integration named in `auto_discover.integration`.
+- **Custom card not found:** make sure the resource URL is registered (`/hacsfiles/...` for HACS, `/local/...` for a manual install) and hard-refresh the browser.
+- **`auto_discover` finds nothing:** confirm the Portainer integration is loaded and its devices exist under **Settings → Devices & Services**.
+- **Entities missing:** check the entity IDs in your YAML against the ones Home Assistant generated.
+- **Start/stop switch is greyed out:** the container has no `control_entity`, no `start_service`/`stop_service`, or points at a read-only entity such as a `sensor` or `binary_sensor`.
+- **An action is missing from the `⋮` menu:** either nothing is configured for it, or its entity is `unavailable` because the action does not apply to the container's current state.
+- **CPU/memory line missing:** the sensor is `unknown`, `unavailable` or non-numeric.
+- **Colors not updating:** reload the dashboard after changing `running_color`/`not_running_color` and
+  check for typos in the CSS variables or hex codes.
 
 ## Development
 
-- Distributed bundle lives in `docker-card.js`
-- No build tooling required; the published file is ready-to-serve ES2021 JavaScript
+- The distributed bundle is `docker-card.js`. No build tooling — it is ready-to-serve ES2021 JavaScript.
+- `test/index.html` is a browser test suite that loads the real card file.
+- `test/screenshot.html` renders the card in the configurations used for the screenshots above. Takes `?case=hero|themes|actions|resources|states|stacks|overview` and `?theme=light|dark`, so every image in this README can be regenerated after a UI change.
 
 ## License
 
-MIT
+MIT © 2025
