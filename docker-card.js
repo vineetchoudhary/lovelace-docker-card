@@ -358,7 +358,8 @@
       const override = new URL(withScheme);
       const target = new URL(url);
       target.protocol = override.protocol;
-      target.host = override.host;
+      target.hostname = override.hostname;
+      target.port = override.port;
       const prefix = override.pathname.replace(/\/+$/, "");
       if (prefix) {
         target.pathname = `${prefix}${target.pathname}`;

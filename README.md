@@ -183,7 +183,7 @@ optional:
 | `exclude` | *none* | Name globs to exclude. Exclusions win over inclusions |
 | `sort` | `name` | Row order: `name`, `state` or `cpu` (busiest first) |
 | `overview` | `true` | Fill `docker_overview` from the endpoint device. A `docker_overview` you write yourself always wins |
-| `base_url` | *integration's own URL* | Scheme/host to use for those links, e.g. `https://docker.example.com`. Useful when Portainer is configured by IP but you reach it on a domain — see [Custom Portainer URL](#custom-portainer-url) |
+| `base_url` | *integration's own URL* | Scheme, host and port to use for those links, e.g. `https://portainer.example.com`. Useful when Portainer is configured by IP but you reach it on a domain — see [Custom Portainer URL](#custom-portainer-url) |
 | `link_to_portainer` | `true` | Give each row a `hold_action` opening that container's page in Portainer |
 | `include_hidden` | `false` | Include entities hidden in the Home Assistant entity registry |
 
@@ -198,7 +198,7 @@ auto_discover:
   sort: cpu
   overview: true
   link_to_portainer: true
-  base_url: https://docker.example.com
+  base_url: https://portainer.example.com
   include_hidden: false
 ```
 
@@ -298,10 +298,19 @@ Each discovered row links back to its container in Portainer, using the URL the 
 
 ```yaml
 auto_discover:
-  base_url: https://docker.example.com
+  base_url: https://portainer.example.com
 ```
 
-Only the scheme and host are replaced; the container route is kept, so `http://192.168.1.10:9000/#!/2/docker/containers/abc` becomes `https://docker.example.com/#!/2/docker/containers/abc`.
+The scheme, host and port are replaced while the container route is kept, so `https://172.16.10.10:9443/#!/2/docker/containers/abc` becomes:
+
+| `base_url` | Resulting link |
+| --- | --- |
+| `https://portainer.example.com` | `https://portainer.example.com/#!/2/docker/containers/abc` |
+| `https://portainer.example.com:8443` | `https://portainer.example.com:8443/#!/2/docker/containers/abc` |
+| `portainer.example.com` | `https://portainer.example.com/#!/2/docker/containers/abc` |
+| `https://home.example.com/portainer` | `https://home.example.com/portainer/#!/2/docker/containers/abc` |
+
+A `base_url` with no port drops the original one and uses the default for the scheme, so give it an explicit port if your domain needs one. A bare host is assumed to be `https`, a path is honoured for reverse proxies, and an unparseable value leaves the original link untouched.
 
 ### Container actions
 

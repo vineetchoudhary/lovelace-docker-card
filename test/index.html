@@ -1808,7 +1808,7 @@
     "d-stack": dev("d-stack", "Stack", "media", { via_device_id: "d-end" }),
     "d-ha": dev("d-ha", "Container", "homeassistant", {
       via_device_id: "d-end",
-      configuration_url: "https://portainer.local/#!/2/docker/containers/abc"
+      configuration_url: "https://172.16.10.10:9443/#!/2/docker/containers/abc"
     }),
     "d-z2m": dev("d-z2m", "Container", "zigbee2mqtt", { via_device_id: "d-stack" }),
     "d-de": dev("d-de", "Container", "paperless", { via_device_id: "d-end", area_id: "office" }),
@@ -1957,7 +1957,7 @@
   eq("a container links back to Portainer", (function () {
     var container = auto._discovered.containers.filter(function (c) { return c.name === "homeassistant"; })[0];
     return container.hold_action.url_path;
-  })(), "https://portainer.local/#!/2/docker/containers/abc");
+  })(), "https://172.16.10.10:9443/#!/2/docker/containers/abc");
   eq("link_to_portainer: false opts out", (function () {
     var el = discover({ auto_discover: { link_to_portainer: false } });
     return el._discovered.containers.filter(function (c) { return c.name === "homeassistant"; })[0].hold_action;
@@ -2180,10 +2180,25 @@
   };
   eq("without base_url the integration's own URL is used",
      linkOf(discover({ auto_discover: true }), "homeassistant"),
-     "https://portainer.local/#!/2/docker/containers/abc");
+     "https://172.16.10.10:9443/#!/2/docker/containers/abc");
   eq("base_url swaps scheme and host, keeping the route",
      linkOf(discover({ auto_discover: { base_url: "https://docker.example.com" } }), "homeassistant"),
      "https://docker.example.com/#!/2/docker/containers/abc");
+  eq("…and drops the original port when the new address has none",
+     linkOf(discover({ auto_discover: { base_url: "https://portainer.29p2.in" } }), "homeassistant")
+       .indexOf(":9443"), -1);
+  eq("a port on the new address replaces the old one",
+     linkOf(discover({ auto_discover: { base_url: "https://portainer.29p2.in:8443" } }), "homeassistant"),
+     "https://portainer.29p2.in:8443/#!/2/docker/containers/abc");
+  eq("a bare host with a port works too",
+     linkOf(discover({ auto_discover: { base_url: "portainer.29p2.in:8443" } }), "homeassistant"),
+     "https://portainer.29p2.in:8443/#!/2/docker/containers/abc");
+  eq("a default port for the scheme is normalised away",
+     linkOf(discover({ auto_discover: { base_url: "https://portainer.29p2.in:443" } }), "homeassistant"),
+     "https://portainer.29p2.in/#!/2/docker/containers/abc");
+  eq("a path prefix and a port can be combined",
+     linkOf(discover({ auto_discover: { base_url: "https://home.example.com:8443/portainer" } }), "homeassistant"),
+     "https://home.example.com:8443/portainer/#!/2/docker/containers/abc");
   eq("a port is carried over",
      linkOf(discover({ auto_discover: { base_url: "http://192.168.1.10:9443" } }), "homeassistant"),
      "http://192.168.1.10:9443/#!/2/docker/containers/abc");
@@ -2198,7 +2213,7 @@
      "https://home.example.com/portainer/#!/2/docker/containers/abc");
   eq("an unparseable base_url falls back to the original link",
      linkOf(discover({ auto_discover: { base_url: "::::" } }), "homeassistant"),
-     "https://portainer.local/#!/2/docker/containers/abc");
+     "https://172.16.10.10:9443/#!/2/docker/containers/abc");
   eq("base_url does not invent a link where the device has none",
      linkOf(discover({ auto_discover: { base_url: "https://docker.example.com" } }), "zigbee2mqtt"), null);
   eq("link_to_portainer: false still wins over base_url",
