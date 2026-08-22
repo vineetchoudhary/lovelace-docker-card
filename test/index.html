@@ -869,7 +869,8 @@
   rowNamed(failCard, "Node-RED").querySelector("ha-switch").click();
   await settle();
   await settle();
-  eq("a failed start notifies the user", notes[0], "Failed to start Node-RED. Check logs.");
+  eq("the attempt is announced first", notes[0], "Starting Node-RED…");
+  eq("a failed start notifies the user", notes[1], "Failed to start Node-RED. Check logs.");
   eq("…and the switch returns to the real state",
      rowNamed(failCard, "Node-RED").querySelector("ha-switch").checked, false);
   eq("…and the row is no longer pending",
@@ -2346,9 +2347,173 @@
   })(), 18);
 
   /* ================================================================== *
-   * 29. accessibility and hygiene
+   * 29. notification timing
    * ================================================================== */
-  section("29. Accessibility and hygiene");
+  section("29. Notification timing");
+  /* callService does not settle until Home Assistant has finished running the
+     service — a prune or a recreate can take minutes — so the progress toast
+     has to be fired up front, not after the await. */
+  var heldCall = function () {
+    var release;
+    var promise = new Promise(function (resolve) { release = resolve; });
+    return { promise: promise, release: release };
+  };
+
+  var pruneStates = baseStates();
+  pruneStates["button.local_prune_images"] = mk("button.local_prune_images", "2026-01-01T00:00:00+00:00");
+  var pruneConfig = clone(FULL_CONFIG);
+  pruneConfig.docker_overview.prune_images = "button.local_prune_images";
+
+  var slowPrune = heldCall();
+  var pruneCard = make(pruneConfig, makeHass(pruneStates, { result: slowPrune.promise }));
+  var pruneNotes = [];
+  pruneCard.addEventListener("hass-notification", function (e) { pruneNotes.push(e.detail.message); });
+  q(pruneCard, ".header .overflow-trigger").click();
+  q(pruneCard, '.menu-item[data-action="prune_images"]').click();   // arms
+  q(pruneCard, '.menu-item[data-action="prune_images"]').click();   // fires
+  await settle();
+  eq("pruning says so while it is still running", pruneNotes[0], "Pruning unused images…");
+  eq("…and the header is marked busy", q(pruneCard, ".header .overflow-trigger").disabled, true);
+  slowPrune.release();
+  await settle();
+  eq("exactly two toasts: started and finished", pruneNotes.length, 2);
+  eq("…and the button frees up again", q(pruneCard, ".header .overflow-trigger").disabled, false);
+
+  eq("…and confirms when the prune is finished", pruneNotes[1], "Pruned unused images.");
+
+  /* Only the actions the card cannot otherwise show as finished get a second
+     toast — the rest move the container state visibly. */
+  var completionOf = async function (action, extra, overrides) {
+    var notes = [];
+    var el = lifecycleCard(extra, overrides);
+    el.addEventListener("hass-notification", function (e) { notes.push(e.detail.message); });
+    var direct = q(el, '.action-button[data-action="' + action + '"]');
+    if (direct) {
+      direct.click();
+    } else {
+      openMenu(el);
+      var item = q(el, '.menu-item[data-action="' + action + '"]');
+      if (!item) return "not offered";
+      item.click();
+      if (item.classList.contains("destructive")) {
+        q(el, '.menu-item[data-action="' + action + '"]').click();
+      }
+    }
+    await settle();
+    await settle();
+    return notes.join(" | ");
+  };
+
+  eq("recreate confirms completion",
+     await completionOf("recreate"), "Recreating Zigbee2MQTT… | Recreated Zigbee2MQTT.");
+  eq("update confirms completion",
+     await completionOf("update", {}, updateHass()), "Updating Zigbee2MQTT… | Updated Zigbee2MQTT.");
+  eq("restart does not — the row already shows it",
+     await completionOf("restart"), "Restarting Zigbee2MQTT…");
+  eq("pause does not either", await completionOf("pause"), "Pausing Zigbee2MQTT…");
+  eq("nor kill", await completionOf("kill"), "Killing Zigbee2MQTT…");
+  eq("a failed recreate reports the failure, not completion", await (async function () {
+    var notes = [];
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [Object.assign({}, LIFECYCLE)]
+    }, Object.assign(lifecycleHass(), {
+      callService: function () { return Promise.reject(new Error("boom")); }
+    }));
+    el.addEventListener("hass-notification", function (e) { notes.push(e.detail.message); });
+    openMenu(el);
+    q(el, '.menu-item[data-action="recreate"]').click();
+    q(el, '.menu-item[data-action="recreate"]').click();
+    await settle();
+    await settle();
+    return notes.join(" | ");
+  })(), "Recreating Zigbee2MQTT… | Failed to recreate Zigbee2MQTT.");
+
+  var slowRestart = heldCall();
+  var restartCard = make({
+    type: "custom:docker-card", containers_expanded: true,
+    containers: [Object.assign({}, LIFECYCLE)]
+  }, Object.assign(lifecycleHass(), { callService: function (d, sv, data) {
+      calls.push({ domain: d, service: sv, data: data });
+      return slowRestart.promise;
+    } }));
+  var restartNotes = [];
+  restartCard.addEventListener("hass-notification", function (e) { restartNotes.push(e.detail.message); });
+  openMenu(restartCard);
+  q(restartCard, '.menu-item[data-action="restart"]').click();
+  await settle();
+  eq("a restart reports itself immediately", restartNotes[0], "Restarting Zigbee2MQTT…");
+  eq("…while the row is still pending", rows(restartCard)[0].classList.contains("pending"), true);
+  slowRestart.release();
+  await settle();
+  eq("…and a restart is not announced twice", restartNotes.length, 1);
+
+  var slowToggle = heldCall();
+  var toggleNotes = [];
+  var slowToggleCard = make(clone(FULL_CONFIG), makeHass(baseStates(), { result: slowToggle.promise }));
+  slowToggleCard.addEventListener("hass-notification", function (e) { toggleNotes.push(e.detail.message); });
+  rowNamed(slowToggleCard, "Node-RED").querySelector("ha-switch").click();
+  await settle();
+  eq("starting a container reports itself immediately", toggleNotes[0], "Starting Node-RED…");
+  slowToggle.release();
+  await settle();
+  eq("…once only", toggleNotes.length, 1);
+
+  /* tap/hold service calls are fire-and-forget; a rejection must still be
+     reported rather than becoming an unhandled promise rejection */
+  var actionFail = make({
+    type: "custom:docker-card", containers_expanded: true,
+    containers: [{ name: "Act", status_entity: "sensor.docker_homeassistant_status",
+                   control_entity: "switch.docker_homeassistant",
+                   tap_action: { action: "call-service", service: "script.diagnostics" } }]
+  }, makeHass(baseStates(), { result: Promise.reject(new Error("nope")) }));
+  var actionNotes = [];
+  actionFail.addEventListener("hass-notification", function (e) { actionNotes.push(e.detail.message); });
+  rows(actionFail)[0].click();
+  await settle();
+  await settle();
+  eq("a failed call-service tap action is reported",
+     actionNotes[0], "Failed to call script.diagnostics. Check logs.");
+
+  var toggleFail = make({
+    type: "custom:docker-card", containers_expanded: true,
+    containers: [{ name: "Act", status_entity: "sensor.docker_homeassistant_status",
+                   control_entity: "switch.docker_homeassistant",
+                   tap_action: { action: "toggle" } }]
+  }, makeHass(baseStates(), { result: Promise.reject(new Error("nope")) }));
+  var toggleActionNotes = [];
+  toggleFail.addEventListener("hass-notification", function (e) { toggleActionNotes.push(e.detail.message); });
+  rows(toggleFail)[0].click();
+  await settle();
+  await settle();
+  eq("a failed toggle action is reported too",
+     toggleActionNotes[0], "Failed to call homeassistant.toggle. Check logs.");
+  eq("a successful action stays silent", (function () {
+    var quiet = [];
+    var el = make({
+      type: "custom:docker-card", containers_expanded: true,
+      containers: [{ name: "Act", status_entity: "sensor.docker_homeassistant_status",
+                     tap_action: { action: "call-service", service: "script.diagnostics" } }]
+    });
+    el.addEventListener("hass-notification", function (e) { quiet.push(e.detail.message); });
+    rows(el)[0].click();
+    return quiet.length;
+  })(), 0);
+
+  var failing = make(clone(FULL_CONFIG),
+                     makeHass(baseStates(), { result: Promise.reject(new Error("nope")) }));
+  var failNotes = [];
+  failing.addEventListener("hass-notification", function (e) { failNotes.push(e.detail.message); });
+  rowNamed(failing, "Node-RED").querySelector("ha-switch").click();
+  await settle();
+  await settle();
+  eq("a failure still reports the attempt first", failNotes[0], "Starting Node-RED…");
+  eq("…then the failure", failNotes[1], "Failed to start Node-RED. Check logs.");
+
+  /* ================================================================== *
+   * 30. accessibility and hygiene
+   * ================================================================== */
+  section("30. Accessibility and hygiene");
   eq("the section header is a real button", q(listCard, ".section-header").tagName, "BUTTON");
   eq("…with an explicit type so it never submits a form",
      q(listCard, ".section-header").type, "button");
