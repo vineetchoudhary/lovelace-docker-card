@@ -926,8 +926,12 @@
       menu.classList.remove("upwards");
       const menuRect = menu.getBoundingClientRect();
       const cardRect = card.getBoundingClientRect();
+      const anchorRect = this._menuAnchor ? this._menuAnchor.getBoundingClientRect() : menuRect;
       if (menuRect.height && menuRect.bottom > cardRect.bottom) {
-        menu.classList.add("upwards");
+        const flippedTop = anchorRect.top - menuRect.height;
+        if (flippedTop >= cardRect.top) {
+          menu.classList.add("upwards");
+        }
       }
 
       const items = this._menuItems || [];
@@ -1405,7 +1409,8 @@
         .container-name-row {
           display: flex;
           align-items: center;
-          gap: 0.4rem;
+          flex-wrap: wrap;
+          gap: 0.25rem 0.4rem;
           min-width: 0;
         }
         .badge {
