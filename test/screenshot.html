@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Docker Card — screenshot renderer</title>
+<style>
+  /* Page canvas matches GitHub's so the screenshots sit flush in the README. */
+  :root { --page-background: #f6f8fa; }
+  body.dark { --page-background: #0d1117; }
+
+  /* Home Assistant theme variables. --state-active-color is deliberately left
+     undefined, as many themes leave it, so the card falls back to its own accents. */
+  .pane {
+    --primary-color: #03a9f4;
+    --primary-text-color: #212121;
+    --secondary-text-color: #727272;
+    --text-primary-color: #ffffff;
+    --divider-color: rgba(0, 0, 0, .12);
+    --card-background-color: #ffffff;
+    --ha-card-background: #ffffff;
+    --ha-card-border-radius: 12px;
+    --info-color: #039be5;
+    background: #f6f8fa;
+  }
+  .pane.dark {
+    --primary-text-color: #e1e1e1;
+    --secondary-text-color: #9b9b9b;
+    --divider-color: rgba(255, 255, 255, .12);
+    --card-background-color: #1c1c1c;
+    --ha-card-background: #1c1c1c;
+    background: #0d1117;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--page-background);
+    font-family: Roboto, "Helvetica Neue", -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { padding: 24px; display: grid; gap: 16px; width: max-content; }
+  #stage.two-up { grid-template-columns: 1fr 1fr; align-items: start; }
+  .pane { display: grid; gap: 16px; align-content: start; padding: 20px; border-radius: 14px; }
+  .pane > .label {
+    font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .14em; text-transform: uppercase; opacity: .55;
+    color: var(--primary-text-color);
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+/* Stand-ins for the Home Assistant components the card renders, styled to match
+   what Home Assistant actually shows. */
+(function () {
+  class HaCard extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML =
+        '<style>:host{display:block;border-radius:var(--ha-card-border-radius,12px);' +
+        'background:var(--ha-card-background,var(--card-background-color,#fff));' +
+        'box-shadow:0 2px 4px rgba(0,0,0,.10),0 1px 2px rgba(0,0,0,.06)}</style><slot></slot>';
+    }
+  }
+  customElements.define("ha-card", HaCard);
+
+  class HaSwitch extends HTMLElement {
+    constructor() {
+      super();
+      this._checked = false;
+      this._disabled = false;
+      this.attachShadow({ mode: "open" }).innerHTML =
+        '<style>' +
+        ':host{display:inline-flex;width:36px;height:20px;align-items:center;flex:0 0 auto}' +
+        ':host([disabled]){opacity:.45}' +
+        '.track{width:34px;height:14px;border-radius:7px;background:rgba(128,128,128,.45);position:relative}' +
+        '.thumb{position:absolute;top:-3px;left:0;width:20px;height:20px;border-radius:50%;' +
+        'background:#fafafa;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:left .12s ease}' +
+        ':host([checked]) .track{background:rgba(3,169,244,.45)}' +
+        ':host([checked]) .thumb{left:14px;background:var(--primary-color,#03a9f4)}' +
+        '</style><span class="track"><span class="thumb"></span></span>';
+    }
+    get checked() { return this._checked; }
+    set checked(v) { this._checked = !!v; this.toggleAttribute("checked", this._checked); }
+    get disabled() { return this._disabled; }
+    set disabled(v) { this._disabled = !!v; this.toggleAttribute("disabled", this._disabled); }
+  }
+  customElements.define("ha-switch", HaSwitch);
+
+  var MDI = {
+    "mdi:docker": "M21.81 10.25C21.75 10.21 21.25 9.82 20.17 9.82C19.89 9.82 19.61 9.85 19.33 9.9C19.12 8.5 17.95 7.79 17.9 7.76L17.61 7.59L17.43 7.86C17.19 8.22 17 8.63 16.92 9.05C16.72 9.85 16.84 10.61 17.25 11.26C16.76 11.54 15.96 11.61 15.79 11.61H2.62C2.28 11.61 2 11.89 2 12.24C2 13.39 2.18 14.54 2.58 15.62C3.03 16.81 3.71 17.69 4.58 18.23C5.56 18.83 7.17 19.17 9 19.17C9.79 19.17 10.61 19.1 11.42 18.95C12.54 18.75 13.62 18.36 14.61 17.79C15.43 17.32 16.16 16.72 16.78 16C17.83 14.83 18.45 13.5 18.9 12.35H19.09C20.23 12.35 20.94 11.89 21.33 11.5C21.59 11.26 21.78 10.97 21.92 10.63L22 10.39L21.81 10.25M3.85 11.24H5.61C5.69 11.24 5.77 11.17 5.77 11.08V9.5C5.77 9.42 5.7 9.34 5.61 9.34H3.85C3.76 9.34 3.69 9.41 3.69 9.5V11.08C3.7 11.17 3.76 11.24 3.85 11.24M6.28 11.24H8.04C8.12 11.24 8.2 11.17 8.2 11.08V9.5C8.2 9.42 8.13 9.34 8.04 9.34H6.28C6.19 9.34 6.12 9.41 6.12 9.5V11.08C6.13 11.17 6.19 11.24 6.28 11.24M8.75 11.24H10.5C10.6 11.24 10.67 11.17 10.67 11.08V9.5C10.67 9.42 10.61 9.34 10.5 9.34H8.75C8.67 9.34 8.6 9.41 8.6 9.5V11.08C8.6 11.17 8.66 11.24 8.75 11.24M11.19 11.24H12.96C13.04 11.24 13.11 11.17 13.11 11.08V9.5C13.11 9.42 13.05 9.34 12.96 9.34H11.19C11.11 9.34 11.04 9.41 11.04 9.5V11.08C11.04 11.17 11.11 11.24 11.19 11.24M6.28 9H8.04C8.12 9 8.2 8.91 8.2 8.82V7.25C8.2 7.16 8.13 7.09 8.04 7.09H6.28C6.19 7.09 6.12 7.15 6.12 7.25V8.82C6.13 8.91 6.19 9 6.28 9M8.75 9H10.5C10.6 9 10.67 8.91 10.67 8.82V7.25C10.67 7.16 10.61 7.09 10.5 7.09H8.75C8.67 7.09 8.6 7.15 8.6 7.25V8.82C8.6 8.91 8.66 9 8.75 9M11.19 9H12.96C13.04 9 13.11 8.91 13.11 8.82V7.25C13.11 7.16 13.04 7.09 12.96 7.09H11.19C11.11 7.09 11.04 7.15 11.04 7.25V8.82C11.04 8.91 11.11 9 11.19 9M11.19 6.72H12.96C13.04 6.72 13.11 6.65 13.11 6.56V5C13.11 4.9 13.04 4.83 12.96 4.83H11.19C11.11 4.83 11.04 4.89 11.04 5V6.56C11.04 6.64 11.11 6.72 11.19 6.72M13.65 11.24H15.41C15.5 11.24 15.57 11.17 15.57 11.08V9.5C15.57 9.42 15.5 9.34 15.41 9.34H13.65C13.57 9.34 13.5 9.41 13.5 9.5V11.08C13.5 11.17 13.57 11.24 13.65 11.24",
+    "mdi:restart": "M12,4C14.1,4 16.1,4.8 17.6,6.3C20.7,9.4 20.7,14.5 17.6,17.6C15.8,19.5 13.3,20.2 10.9,19.9L11.4,17.9C13.1,18.1 14.9,17.5 16.2,16.2C18.5,13.9 18.5,10.1 16.2,7.7C15.1,6.6 13.5,6 12,6V10.6L7,5.6L12,0.6V4M6.3,17.6C3.7,15 3.3,11 5.1,7.9L6.6,9.4C5.5,11.6 5.9,14.4 7.8,16.2C8.3,16.7 8.9,17.1 9.6,17.4L9,19.4C8,19 7.1,18.4 6.3,17.6Z",
+    "mdi:pause": "M14,19H18V5H14M6,19H10V5H6V19Z",
+    "mdi:play": "M8,5.14V19.14L19,12.14L8,5.14Z",
+    "mdi:package-up": "M20.54,5.23C20.83,5.57 21,6 21,6.5V19A2,2 0 0,1 19,21H5A2,2 0 0,1 3,19V6.5C3,6 3.17,5.57 3.46,5.23L4.84,3.55C5.12,3.21 5.53,3 6,3H18C18.47,3 18.88,3.21 19.15,3.55L20.54,5.23M5.12,5H18.87L17.93,4H5.93L5.12,5M12,9.5L6.5,15H10V17H14V15H17.5L12,9.5Z",
+    "mdi:autorenew": "M12,6V9L16,5L12,1V4A8,8 0 0,0 4,12C4,13.57 4.46,15.03 5.24,16.26L6.7,14.8C6.25,13.97 6,13 6,12A6,6 0 0,1 12,6M18.76,7.74L17.3,9.2C17.74,10.04 18,11 18,12A6,6 0 0,1 12,18V15L8,19L12,23V20A8,8 0 0,0 20,12C20,10.43 19.54,8.97 18.76,7.74Z",
+    "mdi:skull-outline": "M8,15A2,2 0 0,1 6,13A2,2 0 0,1 8,11A2,2 0 0,1 10,13A2,2 0 0,1 8,15M10.5,17L12,14L13.5,17H10.5M16,15A2,2 0 0,1 14,13A2,2 0 0,1 16,11A2,2 0 0,1 18,13A2,2 0 0,1 16,15M22,11A10,10 0 0,0 12,1A10,10 0 0,0 2,11C2,13.8 3.2,16.3 5,18.1V22H19V18.1C20.8,16.3 22,13.8 22,11M17,20H15V18H13V20H11V18H9V20H7V17.2C5.2,15.7 4,13.5 4,11A8,8 0 0,1 12,3A8,8 0 0,1 20,11C20,13.5 18.8,15.8 17,17.2V20Z",
+    "mdi:dots-vertical": "M12,16A2,2 0 0,1 14,18A2,2 0 0,1 12,20A2,2 0 0,1 10,18A2,2 0 0,1 12,16M12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10M12,4A2,2 0 0,1 14,6A2,2 0 0,1 12,8A2,2 0 0,1 10,6A2,2 0 0,1 12,4Z",
+    "mdi:open-in-new": "M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z",
+    "mdi:alert-outline": "M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16",
+    "mdi:heart-pulse": "M7.5,4A5.5,5.5 0 0,0 2,9.5C2,10 2.09,10.5 2.22,11H6.3L7.57,7.63C7.87,6.83 9.05,6.75 9.43,7.63L11.5,13L12.09,11.58C12.22,11.25 12.57,11 13,11H21.78C21.91,10.5 22,10 22,9.5A5.5,5.5 0 0,0 16.5,4C14.64,4 13,4.93 12,6.34C11,4.93 9.36,4 7.5,4V4M3,12.5A1,1 0 0,0 2,13.5A1,1 0 0,0 3,14.5H5.44L11,20C12,20.9 12,20.9 13,20L18.56,14.5H21A1,1 0 0,0 22,13.5A1,1 0 0,0 21,12.5H13.4L12.47,14.8C12.07,15.81 10.92,15.67 10.55,14.83L8.5,9.5L7.54,11.83C7.39,12.21 7.05,12.5 6.6,12.5H3Z",
+    "mdi:home-assistant": "M21.8,13H20V21H13V17.67L15.79,14.88L16.5,15C17.66,15 18.6,14.06 18.6,12.9C18.6,11.74 17.66,10.8 16.5,10.8A2.1,2.1 0 0,0 14.4,12.9L14.5,13.61L13,15.13V9.65C13.66,9.29 14.1,8.6 14.1,7.8A2.1,2.1 0 0,0 12,5.7A2.1,2.1 0 0,0 9.9,7.8C9.9,8.6 10.34,9.29 11,9.65V15.13L9.5,13.61L9.6,12.9A2.1,2.1 0 0,0 7.5,10.8A2.1,2.1 0 0,0 5.4,12.9A2.1,2.1 0 0,0 7.5,15L8.21,14.88L11,17.67V21H4V13H2.25C1.83,13 1.42,13 1.42,12.79C1.43,12.57 1.85,12.15 2.28,11.72L11,3C11.33,2.67 11.67,2.33 12,2.33C12.33,2.33 12.67,2.67 13,3L17,7V6H19V9L21.78,11.78C22.18,12.18 22.59,12.59 22.6,12.8C22.6,13 22.2,13 21.8,13M7.5,12A0.9,0.9 0 0,1 8.4,12.9A0.9,0.9 0 0,1 7.5,13.8A0.9,0.9 0 0,1 6.6,12.9A0.9,0.9 0 0,1 7.5,12M16.5,12C17,12 17.4,12.4 17.4,12.9C17.4,13.4 17,13.8 16.5,13.8A0.9,0.9 0 0,1 15.6,12.9A0.9,0.9 0 0,1 16.5,12M12,6.9C12.5,6.9 12.9,7.3 12.9,7.8C12.9,8.3 12.5,8.7 12,8.7C11.5,8.7 11.1,8.3 11.1,7.8C11.1,7.3 11.5,6.9 12,6.9Z",
+    "mdi:zigbee": "M4.06,6.15C3.97,6.17 3.88,6.22 3.8,6.28C2.66,7.9 2,9.87 2,12A10,10 0 0,0 12,22C15,22 17.68,20.68 19.5,18.6L17,18.85C14.25,19.15 11.45,19.19 8.66,18.96C7.95,18.94 7.24,18.76 6.59,18.45C5.73,18.06 5.15,17.23 5.07,16.29C5.06,16.13 5.12,16 5.23,15.87L7.42,13.6L15.03,5.7V5.6H10.84C8.57,5.64 6.31,5.82 4.06,6.15M20.17,17.5C20.26,17.47 20.35,17.44 20.43,17.39C21.42,15.83 22,14 22,12A10,10 0 0,0 12,2C9.22,2 6.7,3.13 4.89,4.97H5.17C8.28,4.57 11.43,4.47 14.56,4.65C15.5,4.64 16.45,4.82 17.33,5.17C18.25,5.53 18.89,6.38 19,7.37C19,7.53 18.93,7.7 18.82,7.82L9.71,17.19L9,17.95V18.06H13.14C15.5,18 17.84,17.81 20.17,17.5Z",
+    "mdi:sitemap": "M9,2V8H11V11H5C3.89,11 3,11.89 3,13V16H1V22H7V16H5V13H11V16H9V22H15V16H13V13H19V16H17V22H23V16H21V13C21,11.89 20.11,11 19,11H13V8H15V2H9Z",
+    "mdi:image-remove": "M13.3 21H5C3.9 21 3 20.1 3 19V5C3 3.9 3.9 3 5 3H19C20.1 3 21 3.9 21 5V13.3C20.4 13.1 19.7 13 19 13C17.9 13 16.8 13.3 15.9 13.9L14.5 12L11 16.5L8.5 13.5L5 18H13.1C13 18.3 13 18.7 13 19C13 19.7 13.1 20.4 13.3 21M20.4 19L22.5 21.1L21.1 22.5L19 20.4L16.9 22.5L15.5 21.1L17.6 19L15.5 16.9L16.9 15.5L19 17.6L21.1 15.5L22.5 16.9L20.4 19Z",
+    "mdi:database-remove": "M15.46,15.88L16.88,14.46L19,16.59L21.12,14.47L22.53,15.88L20.41,18L22.54,20.12L21.12,21.54L19,19.41L16.88,21.53L15.47,20.12L17.59,18L15.46,15.88M12,3C16.42,3 20,4.79 20,7C20,9.21 16.42,11 12,11C7.58,11 4,9.21 4,7C4,4.79 7.58,3 12,3M4,9C4,11.21 7.58,13 12,13C16.42,13 20,11.21 20,9V12.08L19,12C16.41,12 14.2,13.64 13.36,15.94L12,16C7.58,16 4,14.21 4,12V9M4,14C4,16.21 7.58,18 12,18H13C13,19.05 13.27,20.04 13.75,20.9L12,21C7.58,21 4,19.21 4,17V14Z",
+    "mdi:calendar": "M19,19H5V8H19M16,1V3H8V1H6V3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H18V1M17,12H12V17H17V12Z",
+    "mdi:chart-donut": "M13,2.05V5.08C16.39,5.57 19,8.47 19,12C19,12.9 18.82,13.75 18.5,14.54L21.12,16.07C21.68,14.83 22,13.45 22,12C22,6.82 18.05,2.55 13,2.05M12,19A7,7 0 0,1 5,12C5,8.47 7.61,5.57 11,5.08V2.05C5.94,2.55 2,6.81 2,12A10,10 0 0,0 12,22C15.3,22 18.23,20.39 20.05,17.91L17.45,16.38C16.17,18 14.21,19 12,19Z",
+    "mdi:database-cog": "M4 7C4 4.79 7.58 3 12 3S20 4.79 20 7 16.42 11 12 11 4 9.21 4 7M12.08 18L12 18C7.58 18 4 16.21 4 14V17C4 19.21 7.58 21 12 21C12.1 21 12.2 21 12.29 21C12.11 20.36 12 19.69 12 19C12 18.66 12.03 18.33 12.08 18M20 12.08C20 12.05 20 12.03 20 12V9C20 11.21 16.42 13 12 13S4 11.21 4 9V12C4 14.21 7.58 16 12 16C12.23 16 12.46 16 12.69 16C13.82 13.63 16.22 12 19 12C19.34 12 19.67 12.03 20 12.08M23.8 20.4C23.9 20.4 23.9 20.5 23.8 20.6L22.8 22.3C22.7 22.4 22.6 22.4 22.5 22.4L21.3 22C21 22.2 20.8 22.3 20.5 22.5L20.3 23.8C20.3 23.9 20.2 24 20.1 24H18.1C18 24 17.9 23.9 17.8 23.8L17.6 22.5C17.3 22.4 17 22.2 16.8 22L15.6 22.5C15.5 22.5 15.4 22.5 15.3 22.4L14.3 20.7C14.2 20.6 14.3 20.5 14.4 20.4L15.5 19.6V18.6L14.4 17.8C14.3 17.7 14.3 17.6 14.3 17.5L15.3 15.8C15.4 15.7 15.5 15.7 15.6 15.7L16.8 16.2C17.1 16 17.3 15.9 17.6 15.7L17.8 14.4C17.8 14.3 17.9 14.2 18.1 14.2H20.1C20.2 14.2 20.3 14.3 20.3 14.4L20.5 15.7C20.8 15.8 21.1 16 21.4 16.2L22.6 15.7C22.7 15.7 22.9 15.7 22.9 15.8L23.9 17.5C24 17.6 23.9 17.7 23.8 17.8L22.7 18.6V19.6L23.8 20.4M20.5 19C20.5 18.2 19.8 17.5 19 17.5S17.5 18.2 17.5 19 18.2 20.5 19 20.5 20.5 19.8 20.5 19Z",
+    "mdi:cctv": "M6.03 12.03L8.03 15.5L5.5 18.68L2 12.62L6.03 12.03M17 18V15.29C17.88 14.9 18.5 14.03 18.5 13C18.5 12.43 18.3 11.9 17.97 11.5L19.94 10.35C20.95 9.76 21.3 8.47 20.71 7.46L19.33 5.06C18.74 4.05 17.45 3.7 16.44 4.28L8.31 9C7.36 9.53 7.03 10.75 7.58 11.71L9.08 14.31C9.63 15.26 10.86 15.59 11.81 15.04L13.69 13.96C13.94 14.55 14.41 15.03 15 15.29V18C15 19.1 15.9 20 17 20H22V18H17Z",
+    "mdi:file-document": "M13,9H18.5L13,3.5V9M6,2H14L20,8V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V4C4,2.89 4.89,2 6,2M15,18V16H6V18H15M18,14V12H6V14H18Z",
+    "mdi:play-circle": "M10,16.5V7.5L16,12M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z",
+    "mdi:television-classic": "M8.16,3L6.75,4.41L9.34,7H4C2.89,7 2,7.89 2,9V19C2,20.11 2.89,21 4,21H20C21.11,21 22,20.11 22,19V9C22,7.89 21.11,7 20,7H14.66L17.25,4.41L15.84,3L12,6.84L8.16,3M4,9H17V19H4V9M19.5,9A1,1 0 0,1 20.5,10A1,1 0 0,1 19.5,11A1,1 0 0,1 18.5,10A1,1 0 0,1 19.5,9M19.5,12A1,1 0 0,1 20.5,13A1,1 0 0,1 19.5,14A1,1 0 0,1 18.5,13A1,1 0 0,1 19.5,12Z",
+    "mdi:movie-open": "M20.84 2.18L16.91 2.96L19.65 6.5L21.62 6.1L20.84 2.18M13.97 3.54L12 3.93L14.75 7.46L16.71 7.07L13.97 3.54M9.07 4.5L7.1 4.91L9.85 8.44L11.81 8.05L9.07 4.5M4.16 5.5L3.18 5.69A2 2 0 0 0 1.61 8.04L2 10L6.9 9.03L4.16 5.5M2 10V20C2 21.11 2.9 22 4 22H20C21.11 22 22 21.11 22 20V10H2Z",
+  };
+  class HaIcon extends HTMLElement {
+    static get observedAttributes() { return ["icon"]; }
+    connectedCallback() { this._draw(); }
+    attributeChangedCallback() { this._draw(); }
+    _draw() {
+      if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+      var d = MDI[this.getAttribute("icon")] || MDI["mdi:docker"];
+      this.shadowRoot.innerHTML =
+        '<style>:host{display:inline-flex;width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px)}' +
+        'svg{width:100%;height:100%;fill:currentColor}</style>' +
+        '<svg viewBox="0 0 24 24"><path d="' + d + '"></path></svg>';
+    }
+  }
+  customElements.define("ha-icon", HaIcon);
+})();
+</script>
+<script src="../docker-card.js"></script>
+<script>
+(function () {
+  var mk = function (id, state, attrs) {
+    return { entity_id: id, state: state, attributes: attrs || {} };
+  };
+  var pct = { unit_of_measurement: "%" };
+  var mb = { unit_of_measurement: "MB" };
+
+  var STATES = {
+    "binary_sensor.docker_status": mk("binary_sensor.docker_status", "on"),
+    "sensor.docker_containers_total": mk("sensor.docker_containers_total", "11"),
+    "sensor.docker_containers_running": mk("sensor.docker_containers_running", "10"),
+    "sensor.docker_containers_stopped": mk("sensor.docker_containers_stopped", "1"),
+    "sensor.docker_images": mk("sensor.docker_images", "24"),
+    "sensor.docker_version": mk("sensor.docker_version", "29.1.2"),
+    "sensor.host_os": mk("sensor.host_os", "linux"),
+    "sensor.host_os_version": mk("sensor.host_os_version", "13"),
+    "button.prune_images": mk("button.prune_images", "2026-08-20T09:12:00+00:00"),
+    "button.prune_volumes": mk("button.prune_volumes", "2026-08-20T09:12:00+00:00"),
+
+    "sensor.homeassistant_state": mk("sensor.homeassistant_state", "running"),
+    "switch.homeassistant": mk("switch.homeassistant", "on"),
+    "button.homeassistant_restart": mk("button.homeassistant_restart", "2026-08-21T10:00:00+00:00"),
+    "button.homeassistant_pause": mk("button.homeassistant_pause", "2026-08-21T10:00:00+00:00"),
+    "button.homeassistant_kill": mk("button.homeassistant_kill", "2026-08-21T10:00:00+00:00"),
+    "button.homeassistant_recreate": mk("button.homeassistant_recreate", "2026-08-21T10:00:00+00:00"),
+    "update.homeassistant_image": mk("update.homeassistant_image", "on", {
+      installed_version: "sha256:6f9c4d2b1a8e7c3f5d0b2a9e8c7d6f5a", latest_version: "sha256:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d"
+    }),
+    "sensor.homeassistant_cpu": mk("sensor.homeassistant_cpu", "7.2", pct),
+    "sensor.homeassistant_memory": mk("sensor.homeassistant_memory", "38.5", pct),
+    "sensor.homeassistant_health": mk("sensor.homeassistant_health", "healthy"),
+    "sensor.homeassistant_image": mk("sensor.homeassistant_image", "ghcr.io/home-assistant/home-assistant:2026.8", { friendly_name: "Home Assistant Image" }),
+
+    "sensor.zigbee2mqtt_state": mk("sensor.zigbee2mqtt_state", "running"),
+    "switch.zigbee2mqtt": mk("switch.zigbee2mqtt", "on"),
+    "button.zigbee2mqtt_restart": mk("button.zigbee2mqtt_restart", "2026-08-21T10:00:00+00:00"),
+    "sensor.zigbee2mqtt_cpu": mk("sensor.zigbee2mqtt_cpu", "1.4", pct),
+    "sensor.zigbee2mqtt_memory": mk("sensor.zigbee2mqtt_memory", "112", mb),
+    "sensor.zigbee2mqtt_health": mk("sensor.zigbee2mqtt_health", "healthy"),
+
+    "sensor.frigate_state": mk("sensor.frigate_state", "paused"),
+    "switch.frigate": mk("switch.frigate", "on"),
+    "button.frigate_restart": mk("button.frigate_restart", "unavailable"),
+    "button.frigate_resume": mk("button.frigate_resume", "2026-08-21T10:00:00+00:00"),
+    "button.frigate_kill": mk("button.frigate_kill", "2026-08-21T10:00:00+00:00"),
+    "sensor.frigate_cpu": mk("sensor.frigate_cpu", "34.8", pct),
+    "sensor.frigate_memory": mk("sensor.frigate_memory", "1420", mb),
+
+    "sensor.nodered_state": mk("sensor.nodered_state", "exited"),
+    "switch.nodered": mk("switch.nodered", "off"),
+    "button.nodered_restart": mk("button.nodered_restart", "2026-08-21T10:00:00+00:00"),
+    "sensor.nodered_cpu": mk("sensor.nodered_cpu", "unavailable"),
+    "sensor.nodered_memory": mk("sensor.nodered_memory", "unavailable"),
+
+    "sensor.paperless_state": mk("sensor.paperless_state", "restarting"),
+    "switch.paperless": mk("switch.paperless", "on"),
+
+    "sensor.jellyfin_state": mk("sensor.jellyfin_state", "running"),
+    "switch.jellyfin": mk("switch.jellyfin", "on"),
+    "button.jellyfin_restart": mk("button.jellyfin_restart", "2026-08-21T10:00:00+00:00"),
+    "sensor.jellyfin_cpu": mk("sensor.jellyfin_cpu", "22.6", pct),
+    "sensor.jellyfin_memory": mk("sensor.jellyfin_memory", "890", mb),
+    "sensor.sonarr_state": mk("sensor.sonarr_state", "running"),
+    "switch.sonarr": mk("switch.sonarr", "on"),
+    "button.sonarr_restart": mk("button.sonarr_restart", "2026-08-21T10:00:00+00:00"),
+    "sensor.radarr_state": mk("sensor.radarr_state", "exited"),
+    "switch.radarr": mk("switch.radarr", "off"),
+    "switch.media_stack": mk("switch.media_stack", "on")
+  };
+
+  var HASS = {
+    states: STATES,
+    language: "en",
+    callService: function () { return Promise.resolve(); }
+  };
+
+  var OVERVIEW = {
+    container_count: "sensor.docker_containers_total",
+    containers_running: "sensor.docker_containers_running",
+    containers_stopped: "sensor.docker_containers_stopped",
+    image_count: "sensor.docker_images",
+    docker_version: "sensor.docker_version",
+    operating_system: "sensor.host_os",
+    operating_system_version: "sensor.host_os_version",
+    status: "binary_sensor.docker_status"
+  };
+
+  var HA_FULL = {
+    name: "Home Assistant", icon: "mdi:home-assistant",
+    status_entity: "sensor.homeassistant_state", control_entity: "switch.homeassistant",
+    restart_entity: "button.homeassistant_restart", pause_entity: "button.homeassistant_pause",
+    kill_entity: "button.homeassistant_kill", recreate_entity: "button.homeassistant_recreate",
+    update_entity: "update.homeassistant_image", health_entity: "sensor.homeassistant_health",
+    cpu_entity: "sensor.homeassistant_cpu", memory_entity: "sensor.homeassistant_memory"
+  };
+  var Z2M = {
+    name: "Zigbee2MQTT", icon: "mdi:zigbee",
+    status_entity: "sensor.zigbee2mqtt_state", control_entity: "switch.zigbee2mqtt",
+    restart_entity: "button.zigbee2mqtt_restart", health_entity: "sensor.zigbee2mqtt_health",
+    cpu_entity: "sensor.zigbee2mqtt_cpu", memory_entity: "sensor.zigbee2mqtt_memory"
+  };
+  var FRIGATE = {
+    name: "Frigate", icon: "mdi:cctv",
+    status_entity: "sensor.frigate_state", control_entity: "switch.frigate",
+    restart_entity: "button.frigate_restart", resume_entity: "button.frigate_resume",
+    kill_entity: "button.frigate_kill",
+    cpu_entity: "sensor.frigate_cpu", memory_entity: "sensor.frigate_memory"
+  };
+  var NODERED = {
+    name: "Node-RED", icon: "mdi:sitemap",
+    status_entity: "sensor.nodered_state", control_entity: "switch.nodered",
+    restart_entity: "button.nodered_restart",
+    cpu_entity: "sensor.nodered_cpu", memory_entity: "sensor.nodered_memory"
+  };
+
+  var CASES = {
+    hero: {
+      width: 520,
+      panes: ["light"],
+      config: {
+        type: "custom:docker-card", title: "Docker @ homelab",
+        containers_expanded: true, show_icons: true, docker_overview: OVERVIEW,
+        containers: [HA_FULL, Z2M, FRIGATE, NODERED]
+      }
+    },
+    themes: {
+      width: 420, twoUp: true,
+      panes: ["light", "dark"],
+      config: {
+        type: "custom:docker-card", title: "Docker @ homelab",
+        containers_expanded: true, show_icons: true, docker_overview: OVERVIEW,
+        containers: [HA_FULL, Z2M, NODERED]
+      }
+    },
+    actions: {
+      width: 520, panes: ["light"], openMenu: 2,
+      config: {
+        type: "custom:docker-card", title: "Container actions",
+        containers_expanded: true, show_icons: true,
+        docker_overview: { status: "binary_sensor.docker_status" },
+        containers: [Z2M, NODERED, HA_FULL, FRIGATE]
+      }
+    },
+    resources: {
+      width: 480, panes: ["light"],
+      config: {
+        type: "custom:docker-card", title: "CPU, memory and extra entities",
+        containers_expanded: true, show_icons: true,
+        containers: [
+          Object.assign({}, HA_FULL, {
+            extra_entities: [
+              "sensor.homeassistant_image",
+              { entity: "sensor.homeassistant_health", icon: "mdi:heart-pulse" }
+            ]
+          }),
+          Z2M, NODERED
+        ]
+      }
+    },
+    states: {
+      width: 480, panes: ["light"],
+      config: {
+        type: "custom:docker-card", title: "Container states",
+        containers_expanded: true, show_icons: true,
+        containers: [
+          Z2M,
+          { name: "Frigate", icon: "mdi:cctv", status_entity: "sensor.frigate_state", control_entity: "switch.frigate", resume_entity: "button.frigate_resume" },
+          { name: "Paperless", icon: "mdi:file-document", status_entity: "sensor.paperless_state", control_entity: "switch.paperless" },
+          NODERED
+        ]
+      }
+    },
+    stacks: {
+      width: 520, panes: ["light"],
+      config: {
+        type: "custom:docker-card", title: "Grouped by stack",
+        containers_expanded: true, show_icons: true, group_by: "stack",
+        stacks: { media: { control_entity: "switch.media_stack" } },
+        docker_overview: { status: "binary_sensor.docker_status" },
+        containers: [
+          { name: "Jellyfin", icon: "mdi:play-circle", stack: "media", status_entity: "sensor.jellyfin_state", control_entity: "switch.jellyfin", restart_entity: "button.jellyfin_restart", cpu_entity: "sensor.jellyfin_cpu", memory_entity: "sensor.jellyfin_memory" },
+          { name: "Sonarr", icon: "mdi:television-classic", stack: "media", status_entity: "sensor.sonarr_state", control_entity: "switch.sonarr", restart_entity: "button.sonarr_restart" },
+          { name: "Radarr", icon: "mdi:movie-open", stack: "media", status_entity: "sensor.radarr_state", control_entity: "switch.radarr" },
+          Object.assign({}, HA_FULL, { update_entity: undefined }),
+          Z2M
+        ]
+      }
+    },
+    overview: {
+      width: 520, panes: ["light"],
+      configs: [
+        { type: "custom:docker-card", title: "Docker @ homelab", show_containers: false, docker_overview: OVERVIEW },
+        { type: "custom:docker-card", title: "Collapsed by default", containers_expanded: false, show_icons: true, docker_overview: OVERVIEW, containers: [HA_FULL, Z2M, NODERED] }
+      ]
+    }
+  };
+
+  var params = new URLSearchParams(location.search);
+  var name = params.get("case") || "hero";
+  var theme = params.get("theme") === "dark" ? "dark" : "light";
+  var spec = CASES[name];
+  var stage = document.getElementById("stage");
+  if (spec.twoUp) stage.classList.add("two-up");
+  document.body.classList.add(theme);
+  /* single-pane cases follow the requested theme; the two-up comparison keeps
+     one pane of each and only its canvas follows the theme */
+  var panes = spec.twoUp ? spec.panes : [theme];
+
+  var clone = function (v) { return JSON.parse(JSON.stringify(v)); };
+  var cards = [];
+
+  panes.forEach(function (paneTheme) {
+    var pane = document.createElement("div");
+    pane.className = "pane " + paneTheme;
+    pane.style.width = spec.width + "px";
+    if (spec.twoUp) {
+      var label = document.createElement("div");
+      label.className = "label";
+      label.textContent = paneTheme + " theme";
+      pane.appendChild(label);
+    }
+    (spec.configs || [spec.config]).forEach(function (cfg) {
+      var el = document.createElement("docker-card");
+      el.setConfig(clone(cfg));
+      pane.appendChild(el);
+      el.hass = HASS;
+      cards.push(el);
+    });
+    stage.appendChild(pane);
+  });
+
+  /* openMenu is a row index inside the first card */
+  if (typeof spec.openMenu === "number") {
+    var rows = cards[0].shadowRoot.querySelectorAll(".container-row");
+    var row = rows[spec.openMenu];
+    var trigger = row && row.querySelector(".overflow-trigger");
+    if (trigger) trigger.click();
+  }
+
+  requestAnimationFrame(function () {
+    var box = stage.getBoundingClientRect();
+    document.body.dataset.w = String(Math.ceil(box.width));
+    document.body.dataset.h = String(Math.ceil(box.height));
+    document.title = "ready";
+  });
+})();
+</script>
+</body>
+</html>
